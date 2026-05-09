@@ -2,6 +2,8 @@
 
 k3d runs k3s clusters inside Docker. This lab uses it as the local Kubernetes runtime.
 
+The cluster is for application workloads and Kubernetes-native observability. Jenkins remains outside the cluster in Docker Compose to model centralized CI/CD.
+
 ## Current Cluster
 
 The cluster was created with:

@@ -36,7 +36,7 @@ docker exec kafka /opt/kafka/bin/kafka-topics.sh \
 docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --if-not-exists \
-  --topic documents.v1.events \
+  --topic documents-v1-events \
   --partitions 3 \
   --replication-factor 1
 ```
@@ -44,9 +44,9 @@ docker exec kafka /opt/kafka/bin/kafka-topics.sh \
 Repeat for:
 
 ```text
-audits.v1.events
-workflows.v1.events
-lab.v1.dead-letter
+audits-v1-events
+workflows-v1-events
+lab-v1-dead-letter
 ```
 
 ## Describe Topic
@@ -55,7 +55,7 @@ lab.v1.dead-letter
 docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --describe \
-  --topic documents.v1.events
+  --topic documents-v1-events
 ```
 
 ## Produce Messages
@@ -63,7 +63,7 @@ docker exec kafka /opt/kafka/bin/kafka-topics.sh \
 ```bash
 docker exec -i kafka /opt/kafka/bin/kafka-console-producer.sh \
   --bootstrap-server localhost:9092 \
-  --topic documents.v1.events
+  --topic documents-v1-events
 ```
 
 Paste JSON lines:
@@ -83,7 +83,7 @@ Press `Ctrl-D` to finish.
 ```bash
 docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
-  --topic documents.v1.events \
+  --topic documents-v1-events \
   --from-beginning \
   --max-messages 5
 ```
@@ -112,27 +112,27 @@ docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
 Document Service:
 
 ```text
-produces -> documents.v1.events
+produces -> documents-v1-events
 ```
 
 Audit Service:
 
 ```text
-consumes -> documents.v1.events
-produces -> audits.v1.events
+consumes -> documents-v1-events
+produces -> audits-v1-events
 ```
 
 Workflow Service:
 
 ```text
-consumes -> audits.v1.events
-produces -> workflows.v1.events
+consumes -> audits-v1-events
+produces -> workflows-v1-events
 ```
 
 All services should send failed events to:
 
 ```text
-lab.v1.dead-letter
+lab-v1-dead-letter
 ```
 
 ## Event Envelope

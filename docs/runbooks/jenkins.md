@@ -1,6 +1,8 @@
 # Jenkins Runbook
 
-Jenkins is the lab CI/CD controller.
+Jenkins is the lab CI/CD controller. In this lab it runs in Docker Compose, outside the k3d application cluster.
+
+That is intentional: it simulates a centralized Jenkins service in a shared tooling account that can reach the application cluster over an approved network path. Do not install Jenkins into k3d for the main lab path unless the goal is specifically to practise operating Jenkins on Kubernetes.
 
 ## URL
 
@@ -20,6 +22,7 @@ docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 - You can have multiple jobs pointing at the same monorepo.
 - Credentials should be stored in Jenkins credentials, not hardcoded in Jenkinsfiles.
 - Build logs are one of the main debugging surfaces.
+- Jenkins deploys to k3d from outside the cluster using kubeconfig, `kubectl`, and `helm`.
 
 ## Recommended Jobs
 
@@ -75,6 +78,7 @@ pipeline {
 - kubectl.
 - helm.
 - k3d, if using `k3d image import`.
+- Network access to the k3d API server and Compose-backed services.
 
 ## Common Admin Tasks
 

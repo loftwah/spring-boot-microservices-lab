@@ -2,9 +2,12 @@
 
 Docker Compose runs the standalone backing services for this lab: Postgres, Redis, Kafka, RustFS, Vault, and Jenkins.
 
+Jenkins is deliberately here, not in k3d. Treat it as a centralized CI/CD controller outside the application cluster, similar to a shared Jenkins service in a tooling account.
+
 ## What To Know
 
 - Compose is acting like the local managed-service layer.
+- Jenkins in Compose acts like external shared CI/CD, not an app workload.
 - Containers are disposable.
 - Named volumes hold persistent data.
 - `docker compose down` removes containers and the network, but keeps volumes.

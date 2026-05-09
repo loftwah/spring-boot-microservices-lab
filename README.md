@@ -23,10 +23,12 @@ Redis    -> ElastiCache-like cache
 Kafka    -> MSK-like event streaming
 RustFS   -> S3-like object storage
 Vault    -> secrets and encryption service
-Jenkins  -> CI/CD control plane
+Jenkins  -> centralized CI/CD control plane
 ```
 
 Do not put the Kubernetes observability stack in this Compose file for the main lab path. Observability should live inside k3d so it can discover pods, scrape services, attach Kubernetes labels, collect pod logs, and alert on cluster/app state.
+
+Keep Jenkins in Docker Compose for this lab. It represents a centralized Jenkins service outside the application cluster, like a shared CI/CD service in a tooling account that reaches the cluster over an allowed network path. Do not install Jenkins into k3d unless you intentionally want to practise operating Jenkins itself on Kubernetes.
 
 Start the backing services:
 
@@ -46,7 +48,7 @@ Services:
 | RustFS | `http://localhost:9000` | S3-compatible object storage |
 | RustFS Console | `http://localhost:9001` | Object storage GUI |
 | Vault | `http://localhost:8200` | Secrets and transit encryption |
-| Jenkins | `http://localhost:8080` | Build and deploy pipelines |
+| Jenkins | `http://localhost:8080` | Centralized build and deploy controller |
 
 Development credentials:
 
@@ -101,7 +103,15 @@ kubectl create namespace enterprise-lab
 kubectl get pods -n enterprise-lab
 ```
 
-The backing services run in Docker Compose on the host. The microservices will run in k3d. From inside k3d pods, use `host.k3d.internal` to reach the Compose services.
+The backing services and Jenkins run in Docker Compose on the host. The microservices run in k3d. From inside k3d pods, use `host.k3d.internal` to reach the Compose services.
+
+This models a common enterprise split:
+
+```text
+shared services / tooling account -> Docker Compose
+application Kubernetes cluster    -> k3d
+application workloads             -> Spring Boot pods
+```
 
 Planned runtime endpoints from pods:
 
@@ -382,28 +392,28 @@ Create explicit topics rather than relying on auto-create:
 docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --if-not-exists \
-  --topic documents.v1.events \
+  --topic documents-v1-events \
   --partitions 3 \
   --replication-factor 1
 
 docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --if-not-exists \
-  --topic audits.v1.events \
+  --topic audits-v1-events \
   --partitions 3 \
   --replication-factor 1
 
 docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --if-not-exists \
-  --topic workflows.v1.events \
+  --topic workflows-v1-events \
   --partitions 3 \
   --replication-factor 1
 
 docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --create --if-not-exists \
-  --topic lab.v1.dead-letter \
+  --topic lab-v1-dead-letter \
   --partitions 3 \
   --replication-factor 1
 ```
@@ -652,7 +662,7 @@ Recommended placement:
 | Alloy | k3d | Collects pod logs and can collect/forward metrics and traces |
 | Spring Boot apps | k3d | Expose health, metrics, and logs |
 | Postgres, Redis, Kafka, RustFS, Vault | Docker Compose | Standalone backing services |
-| Jenkins | Docker Compose | CI/CD controller for the lab |
+| Jenkins | Docker Compose | Centralized CI/CD controller outside the app cluster |
 
 This is closer to how Grafana Cloud or a central enterprise observability platform works: many services and teams send telemetry into one shared observability platform. You do not create a separate Grafana for every service. You create service-specific dashboards, folders, alerts, and labels inside the shared Grafana.
 
@@ -822,6 +832,8 @@ That is also closer to the Grafana Cloud mental model: one shared observability 
 
 ## Jenkins Plan
 
+Jenkins stays outside k3d. Treat it as a centralized CI service with network access to the cluster API and backing services, not as an application workload owned by this cluster.
+
 Use three Jenkins pipeline jobs pointing at the same Git repo:
 
 | Jenkins Job | Jenkinsfile Path |
@@ -851,6 +863,7 @@ Jenkins still needs a little more setup before it can deploy:
 4. `kubectl` and `helm` available to the pipeline.
 5. A kubeconfig credential for `k3d-enterprise-lab`.
 6. A local image strategy.
+7. Network access from the Jenkins container to the k3d API and Docker-backed services.
 
 Local image strategy options:
 
