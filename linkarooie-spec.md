@@ -253,7 +253,7 @@ Object key convention:
 
 - New user uploads: `profiles/{profileId}/{purpose}/{mediaId}/original.{ext}`
 - Generated variants: `profiles/{profileId}/{purpose}/{mediaId}/{variant}.{ext}`
-- Generated OG images: `profiles/{profileId}/og/{mediaId}/og.png`
+- Generated OG images: `profiles/{profileId}/og/{mediaId}/og.jpg`
 - Seed assets may use deterministic human-readable keys such as `profiles/loftwah/avatar/loftwah_avatar.jpg` so the fixture is easy to inspect.
 
 Public access decision:
@@ -311,7 +311,7 @@ Public access decision:
 ### V1 Could Have
 
 - Kafka-backed generated OG image job.
-- Hidden profile items with unlock code.
+- Hidden profile items with unlock code (IDDQD).
 - Profile preview in editor.
 - Import from the old TypeScript profile format.
 - Export profile as JSON.
@@ -712,7 +712,7 @@ Recommended variants:
 - Hero medium: 1200x675 WebP or JPEG.
 - Hero large: 1600x900 WebP or JPEG.
 - Brand icon: 512x512 PNG.
-- OG image: 1200x630 PNG for generated profile cards, JPEG for photo-heavy brand OG cards.
+- OG image: 1200x630 JPEG.
 
 Rules:
 
@@ -1405,8 +1405,8 @@ Request:
   "purpose": "OG_IMAGE",
   "variant": "OG_IMAGE",
   "bucket": "linkarooie-media-local",
-  "objectKey": "profiles/.../og/.../og.png",
-  "contentType": "image/png",
+  "objectKey": "profiles/.../og/.../og.jpg",
+  "contentType": "image/jpeg",
   "byteSize": 123456,
   "checksum": "sha256:...",
   "width": 1200,
@@ -1641,10 +1641,10 @@ Generated event:
   "mediaId": "...",
   "variant": "OG_IMAGE",
   "bucket": "linkarooie-media-local",
-  "objectKey": "profiles/.../og/.../og.png",
+  "objectKey": "profiles/.../og/.../og.jpg",
   "width": 1200,
   "height": 630,
-  "contentType": "image/png"
+  "contentType": "image/jpeg"
 }
 ```
 
@@ -2923,16 +2923,16 @@ Canonical asset inventory:
 | Default banner             | Fallback for profiles without uploads                          | 1500x500 source, variants generated from it | JPEG                                           | RustFS `brand/defaults/default_banner.jpg`                                      |
 | Profile avatar original    | User-uploaded source                                           |   1024x1024 maximum stored after validation | JPEG, PNG, or WebP input                       | RustFS `profiles/{profileId}/avatar/{mediaId}/original.{ext}`                   |
 | Profile banner original    | User-uploaded source                                           |    2400x800 maximum stored after validation | JPEG, PNG, or WebP input                       | RustFS `profiles/{profileId}/banner/{mediaId}/original.{ext}`                   |
-| Generated profile OG image | User profile share card                                        |                                    1200x630 | PNG by default, JPEG acceptable if photo-heavy | RustFS `profiles/{profileId}/og/{mediaId}/og.png`                               |
+| Generated profile OG image | User profile share card                                        |                                    1200x630 | JPEG                                           | RustFS `profiles/{profileId}/og/{mediaId}/og.jpg`                               |
 
 Asset rules:
 
-- Prefer JPEG for photographic banners, hero images, and site-wide OG images.
-- Prefer PNG or WebP for app icons, default avatars, and generated graphics that need crisp text.
+- Prefer JPEG for photographic banners, hero images, site-wide OG images, and generated profile OG images.
+- Prefer PNG or WebP for app icons, default avatars, and small generated graphics that need transparency or crisp edges.
 - Do not use SVG for user-uploaded media in V1.
 - SVG is acceptable only for trusted, static build-time assets. The old `background.svg` can be retained as a trusted seed asset, but the new UI should not depend on SVG for icons.
 - Use Font Awesome for UI and profile item icons rather than storing icon SVGs in the media system.
-- Keep generated OG images at exactly 1200x630 because social platforms expect a 1.91:1 card.
+- Keep generated OG images at exactly 1200x630 JPEG because social platforms expect a 1.91:1 card and JPEG gives much smaller share-card files than PNG for this use case.
 - Store source images large enough to regenerate variants, but serve public pages from variants only.
 - Strip EXIF and other image metadata from uploaded and generated public media.
 - Keep `frontend/public` for immutable browser assets and first-load metadata. Use RustFS/S3 for profile media, generated OG images, and brand assets that the backend references by media ID.
@@ -2960,7 +2960,7 @@ Required media files:
 | `src/assets/astro.svg`                      | Original Astro starter asset, not required for V1 UI |     115x48 |                              SVG | `f6acc666531071302a93230b4d36ada513eb3743e5550e136caffb3bb6c50105` |
 | `src/assets/images/loftwah_avatar.jpg`      |                                  Seed profile avatar |    400x400 |                             JPEG | `4f4a75d01bf6c04bf55d04c515b2078b43977a9e6634c27b6eabd7d316e260b5` |
 | `src/assets/images/loftwah_banner.jpg`      |                                  Seed profile banner |   1500x500 |                             JPEG | `f13b455fbaa31199094fcb77533a36f1068fcdefc098850325e7956c554798fa` |
-| `src/assets/images/loftwah_og.jpg`          |                                Seed profile OG image |   1200x630 | PNG data despite `.jpg` filename | `928315b2398353c3dbb983dbeb5754d74e876a0b52766717c2563a167f326728` |
+| `src/assets/images/loftwah_og.jpg`          |                                Seed profile OG image |   1200x630 | PNG data despite `.jpg` filename; transcode to JPEG on import | `928315b2398353c3dbb983dbeb5754d74e876a0b52766717c2563a167f326728` |
 | `src/assets/images/icon.png`                |                                        App icon/logo |    192x192 |                              PNG | `14335e278295a9593f344ae8c1fb1ddb6f18723e2a4c1ebdd188a17f756eaebb` |
 | `src/assets/images/hero.png`                |                                    Home hero preview |  1024x1024 |                              PNG | `8db366ca934a9f7bd99f3ce1517b14012d7c3c850e0afbd123e568868f4e31dc` |
 | `src/assets/images/linkarooie.jpg`          |                            Main OG source/background |   1280x720 |                             JPEG | `56ae3d14d468fb4163b34035a73bfd5960c679759f3252926b1e361c7a65a360` |
@@ -3027,7 +3027,7 @@ Upload profile media objects:
 | ----------------------- | ------------------------------------------------------- | -------------------------------------------- | ---------------- | --------------- |
 | Loftwah avatar          | `seed-assets/linkarooie/images/loftwah_avatar.jpg`      | `profiles/loftwah/avatar/loftwah_avatar.jpg` | `AVATAR`         | `image/jpeg`    |
 | Loftwah banner          | `seed-assets/linkarooie/images/loftwah_banner.jpg`      | `profiles/loftwah/banner/loftwah_banner.jpg` | `BANNER`         | `image/jpeg`    |
-| Loftwah OG image        | `seed-assets/linkarooie/images/loftwah_og.jpg`          | `profiles/loftwah/og/loftwah_og.png`         | `OG_IMAGE`       | `image/png`     |
+| Loftwah OG image        | `seed-assets/linkarooie/images/loftwah_og.jpg`          | `profiles/loftwah/og/loftwah_og.jpg`         | `OG_IMAGE`       | `image/jpeg`    |
 | App icon                | `seed-assets/linkarooie/images/icon.png`                | `brand/icon.png`                             | `BRAND`          | `image/png`     |
 | Home hero               | `seed-assets/linkarooie/images/hero.png`                | `brand/hero.png`                             | `HERO`           | `image/png`     |
 | Default avatar          | `seed-assets/linkarooie/images/default_avatar.png`      | `brand/defaults/default_avatar.png`          | `DEFAULT_AVATAR` | `image/png`     |
@@ -3109,8 +3109,8 @@ Implementation rule:
       "ogImage": {
         "sourceFile": "seed-assets/linkarooie/images/loftwah_og.jpg",
         "bucket": "linkarooie-media-local",
-        "objectKey": "profiles/loftwah/og/loftwah_og.png",
-        "contentType": "image/png",
+        "objectKey": "profiles/loftwah/og/loftwah_og.jpg",
+        "contentType": "image/jpeg",
         "sha256": "928315b2398353c3dbb983dbeb5754d74e876a0b52766717c2563a167f326728"
       }
     }
@@ -3755,7 +3755,7 @@ High-level flow:
 5. Worker loads the current public profile render payload from an internal API endpoint.
 6. Worker renders HTML/Tailwind at 1200x630 in headless Chromium.
 7. Worker screenshots the page to a temporary PNG.
-8. Worker runs Sharp to strip metadata, normalize the image, enforce 1200x630 output, and encode the final OG asset.
+8. Worker runs Sharp to strip metadata, normalize the image, enforce 1200x630 output, and encode the final OG asset as JPEG.
 9. Worker computes checksum and byte size from the final optimized output.
 10. Worker uploads the object to RustFS/S3.
 11. Worker calls `POST /api/internal/media/generated`.
@@ -3804,7 +3804,7 @@ Inputs:
 
 Output:
 
-- 1200x630 PNG.
+- 1200x630 JPEG.
 - Written to the profile `ogImageUrl`.
 
 Dark theme colors:
