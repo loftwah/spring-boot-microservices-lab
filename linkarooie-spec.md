@@ -26,10 +26,10 @@ The existing project is a static Astro and Tailwind app where a profile is defin
 - Hidden links and achievements unlocked with a profile-specific Easter egg.
 - Tracking hooks for link, social, and achievement interactions.
 
-The new version should turn this into a multi-user hosted application:
+The new version turns this into a multi-user hosted application:
 
 - Users can sign up.
-- Users can create and manage their own public Linkarooie profile.
+- Users can create and manage profiles directly or through organisations/teams they belong to.
 - Public visitors can view profile pages without signing in.
 - Public visitors can browse a directory of public profiles.
 - Link clicks and profile views are captured as analytics events.
@@ -40,11 +40,11 @@ The new version should turn this into a multi-user hosted application:
 - Redis is used for caching, rate limiting, sessions or token state, and hot counters.
 - PostgreSQL is the source of truth.
 
-This spec intentionally ignores Vault, Jenkins, and full observability stack implementation for now. The code should still be ready for those later through structured logging, tracing IDs, metrics naming, and clean configuration.
+This spec excludes Vault, Jenkins, and full observability stack implementation. The code still emits structured logs, tracing IDs, and metrics names so those platform services can consume them.
 
 ## 2. Version 1 Decision
 
-Version 1 should be a modular Spring Boot backend rather than many separate backend deployables from day one.
+Version 1 is a modular Spring Boot backend rather than many separate backend deployables from day one.
 
 The recommended V1 deployment units are:
 
@@ -75,7 +75,7 @@ The recommended V1 deployment units are:
 
 This gives the lab enough moving parts to practice application containers, Kafka, Redis, S3, Postgres, k3d, Kubernetes manifests, and GHCR without forcing premature distributed-system complexity.
 
-The backend code should still be organized as if these modules could later become true microservices:
+The backend code is organized so these modules can become true microservices:
 
 - Identity module.
 - Profile module.
@@ -214,7 +214,7 @@ Media event principles:
 - Kafka is the trigger for generated OG image work and media variant generation.
 - The API publishes `MEDIA_VARIANTS_REQUESTED` after avatar, banner, default media, hero, or brand image originals are accepted.
 - The API publishes a fact such as `PROFILE_OG_IMAGE_STALE` after a profile, avatar, banner, display name, description, bio, public tags, or theme-relevant brand setting changes.
-- The media worker consumes the event and loads the current profile state before rendering. The event should not contain all profile HTML.
+- The media worker consumes the event and loads the current profile state before rendering. The event does not contain profile HTML.
 - Include `profileVersion` or `mediaVersion` in the event so stale jobs can be ignored if a newer profile update already happened.
 - Use `profileId` as the partition key so OG jobs for the same profile are processed in order.
 - The worker must be idempotent: regenerating the same version should either reuse the existing generated asset or replace only the pending generated result, never overwrite user-uploaded originals.
@@ -258,20 +258,26 @@ Object key convention:
 
 Public access decision:
 
-- V1 should not rely on public bucket access.
+- V1 does not rely on public bucket access.
 - Store media privately and expose public media through API redirect or short-lived signed URL generation.
-- The public API should return stable application media URLs, not raw RustFS URLs, for example `/api/public/media/{mediaId}/avatar-md`.
+- The public API returns stable application media URLs, not raw RustFS URLs, for example `/api/public/media/{mediaId}/avatar-md`.
 - The API can redirect stable media URLs to signed S3/RustFS URLs with cache headers.
 - Later, when deploying for real, use CDN or object storage public-read rules if desired.
 
 ## 4. Product Scope
 
-### V1 Must Have
+### V1 Build Scope
 
 - User sign-up.
 - User sign-in.
 - User-owned profile creation.
+- Separate personal and team workspaces.
+- Organisation/team creation.
+- Organisation membership roles.
+- Organisation-owned profile creation.
+- Real email sending for account verification, password reset, and organisation invitations.
 - Public username route.
+- Custom domains for public profiles.
 - Profile edit dashboard.
 - Avatar and banner upload.
 - Link CRUD.
@@ -292,14 +298,9 @@ Public access decision:
 - Achievement click tracking.
 - Tag open tracking.
 - Basic anti-abuse rate limiting.
+- Admin moderation dashboard.
 - REST API with OpenAPI docs.
 - Dockerfiles for API, analytics worker, and frontend.
-- Kubernetes manifests or Helm chart later in the lab.
-
-### V1 Should Have
-
-- Email verification can be skipped locally, but design the database so it can be added.
-- Password reset can be stubbed or deferred, but auth code should not make it difficult later.
 - Theme preference at profile level.
 - Public profile SEO metadata.
 - User configurable public analytics visibility.
@@ -307,27 +308,22 @@ Public access decision:
 - Slug-safe username reservation.
 - Basic moderation flags for public directory inclusion.
 - Seed data for the original `loftwah` profile.
-
-### V1 Could Have
-
 - Kafka-backed generated OG image job.
 - Hidden profile items with unlock code (IDDQD).
 - Profile preview in editor.
 - Import from the old TypeScript profile format.
 - Export profile as JSON.
 - Basic webhooks for events.
+- Kubernetes manifests or Helm chart.
 
-### Explicit Non-Goals For V1
+### Explicit Product Exclusions
 
 - Vault integration.
 - Jenkins pipelines.
 - OpenSearch/Grafana/Loki/Tempo stack.
 - Multi-region deployment.
 - Payment/subscription system.
-- Organization/team accounts.
 - Full CMS.
-- Custom domains.
-- Real email sending.
 - Advanced bot detection.
 - Search engine indexing service.
 
@@ -340,7 +336,7 @@ Can:
 - View public profiles.
 - Browse the public directory.
 - Click public links, achievements, social links, and tags.
-- View public analytics if enabled.
+- View public analytics when the profile has `showPublicAnalytics = true`.
 
 Cannot:
 
@@ -353,8 +349,12 @@ Cannot:
 Can:
 
 - Sign in.
-- Create one or more profiles, if enabled.
-- Edit profiles they own.
+- Create one or more personal profiles.
+- Create organisations/teams.
+- Join organisations/teams.
+- Create profiles owned by an organisation/team when their membership role allows it.
+- Edit profiles they own directly.
+- Edit organisation/team profiles when their membership role allows it.
 - Upload profile media.
 - Manage links, achievements, tags, and related work.
 - View owner analytics.
@@ -362,13 +362,30 @@ Can:
 - Decide whether profile appears in directory.
 - Decide whether public analytics appears on their profile.
 
-Default V1 rule:
+Workspace rules:
 
-- One account can own multiple profiles, but the UI can initially optimize for one profile per user.
+- Personal profiles and team profiles are separate workspaces.
+- A user can own multiple personal profiles.
+- A user can belong to multiple organisations.
+- Each organisation can own multiple team profiles.
+- The dashboard always shows a workspace switcher so personal profiles and team profiles are not mixed together.
+- Profile creation always requires selecting a workspace: personal or a specific organisation.
+
+### Organisation Member
+
+Can:
+
+- View organisation dashboard if they are a member.
+- Manage organisation profiles if role is `OWNER` or `ADMIN`.
+- Edit organisation profile content if role is `EDITOR`.
+- View organisation profile analytics if role is `OWNER`, `ADMIN`, `EDITOR`, or `VIEWER`.
+
+Cannot:
+
+- Mutate billing or destructive organisation settings in V1 because billing does not exist.
+- Remove the last organisation owner.
 
 ### Admin
-
-V1 can keep admin minimal.
 
 Can:
 
@@ -376,7 +393,7 @@ Can:
 - Disable abusive profiles.
 - View basic app-wide counters.
 
-Admin UI can be deferred. Keep the role in the model.
+Admin UI includes profile moderation, abuse disablement, directory visibility controls, and app-wide counters.
 
 ## 6. Core User Journeys
 
@@ -390,7 +407,7 @@ Admin UI can be deferred. Keep the role in the model.
 6. API or frontend records `PROFILE_VIEW`.
 7. API publishes analytics event to Kafka.
 8. Analytics worker consumes event and updates aggregates.
-9. Public profile renders avatar, banner, identity, social links, tags, links, achievements, and public analytics if enabled.
+9. Public profile renders avatar, banner, identity, social links, tags, links, achievements, and public analytics when `showPublicAnalytics = true`.
 
 ### Visitor Clicks A Link
 
@@ -414,18 +431,19 @@ Frontend can still call event ingestion for tag opens and UI-only events.
 
 1. User signs up.
 2. User lands in dashboard.
-3. User chooses a username.
-4. API validates username format, uniqueness, and reserved words.
-5. API creates a profile draft.
-6. User adds bio, avatar, banner, social links, links, achievements, and tags.
-7. User toggles profile public.
-8. Public route becomes available.
+3. User chooses personal workspace or an organisation workspace they can edit.
+4. User chooses a username.
+5. API validates workspace permissions, username format, uniqueness, and reserved words.
+6. API creates a profile draft owned by the selected user or organisation.
+7. User adds bio, avatar, banner, social links, links, achievements, and tags.
+8. User toggles profile public.
+9. Public route becomes available.
 
 ### User Uploads Avatar Or Banner
 
 1. Frontend asks API for upload intent.
 2. API validates owner and file metadata.
-3. API either returns a presigned PUT URL or accepts multipart upload directly.
+3. API accepts multipart upload directly.
 4. File lands in RustFS.
 5. API stores media metadata in PostgreSQL.
 6. API validates the stored object by reading metadata and, for images, decoding the file.
@@ -434,7 +452,7 @@ Frontend can still call event ingestion for tag opens and UI-only events.
 9. API updates profile media reference to the ready media asset after required variants exist.
 10. API invalidates public profile cache.
 
-For a simple V1, direct multipart upload through the API is acceptable. For a more cloud-realistic V1, use presigned URLs.
+Media upload uses direct multipart upload through the API.
 
 Image handling requirements:
 
@@ -465,7 +483,7 @@ Use `createdAt`, `updatedAt`, and optimistic locking where edits can conflict.
 
 ### User
 
-Represents an account that can own profiles.
+Represents an account that can own personal profiles and belong to organisations.
 
 Fields:
 
@@ -485,6 +503,50 @@ Rules:
 - Password hash only, never plaintext.
 - Soft delete users if needed.
 
+### Organisation
+
+Represents a team/workspace that can own profiles.
+
+Fields:
+
+- `id`
+- `name`
+- `slug`
+- `createdByUserId`
+- `status`: `ACTIVE`, `DISABLED`, `DELETED`
+- `createdAt`
+- `updatedAt`
+
+Rules:
+
+- Organisation slug is globally unique and URL-safe.
+- Organisation profiles still use globally unique profile usernames for public routes.
+- The user who creates an organisation becomes its first `OWNER`.
+- Billing, seat limits, and SSO are excluded from this build.
+
+### OrganisationMember
+
+Represents a user's role inside an organisation.
+
+Fields:
+
+- `id`
+- `organisationId`
+- `userId`
+- `role`: `OWNER`, `ADMIN`, `EDITOR`, `VIEWER`
+- `status`: `ACTIVE`, `REMOVED`
+- `createdAt`
+- `updatedAt`
+
+Rules:
+
+- `(organisationId, userId)` is unique for active membership.
+- `OWNER` can manage organisation settings, members, and profiles.
+- `ADMIN` can manage members except owners and can manage profiles.
+- `EDITOR` can edit organisation profile content and media.
+- `VIEWER` can view dashboards and analytics but cannot mutate profile content.
+- Do not allow removing or demoting the last active `OWNER`.
+
 ### Profile
 
 Represents a public Linkarooie page.
@@ -492,7 +554,9 @@ Represents a public Linkarooie page.
 Fields:
 
 - `id`
+- `ownerType`: `USER`, `ORGANISATION`
 - `ownerUserId`
+- `ownerOrganisationId`
 - `username`
 - `name`
 - `description`
@@ -513,12 +577,15 @@ Fields:
 
 Rules:
 
+- Exactly one owner field is set based on `ownerType`.
 - `username` is globally unique.
-- `username` should be lowercase and URL-safe.
+- `username` is lowercase and URL-safe.
 - Reserved usernames are blocked: `api`, `admin`, `dashboard`, `login`, `signup`, `settings`, `r`, `assets`, `static`, `health`.
 - Public profile reads only include visible items.
 - Hidden items are not returned unless explicitly unlocked.
 - A profile can be private but still editable by its owner.
+- Personal profiles can be edited by their owner user.
+- Organisation profiles can be edited by organisation members with `OWNER`, `ADMIN`, or `EDITOR` role.
 
 ### SocialLink
 
@@ -550,7 +617,7 @@ Initial platforms:
 Rules:
 
 - Validate URL.
-- Platform-specific validation can be added later.
+- Apply platform-specific URL validation for every known platform.
 
 ### Link
 
@@ -656,7 +723,9 @@ Represents an object stored in RustFS/S3.
 Fields:
 
 - `id`
+- `ownerType`: `USER`, `ORGANISATION`, `SYSTEM`
 - `ownerUserId`
+- `ownerOrganisationId`
 - `profileId`
 - `bucket`
 - `objectKey`
@@ -676,6 +745,8 @@ Fields:
 Rules:
 
 - Profile media references `MediaAsset`.
+- Media owner matches the owning subject of the profile for profile media.
+- Brand/default media can use `ownerType = SYSTEM`.
 - Do not store binary media in PostgreSQL.
 - Use object key convention.
 - Store image dimensions after decoding.
@@ -716,7 +787,7 @@ Recommended variants:
 
 Rules:
 
-- Public profile responses should prefer variants, not originals.
+- Public profile responses prefer variants, not originals.
 - Originals are for regeneration and audit, not normal page rendering.
 - If a variant is missing, return the best available fallback and queue regeneration later.
 - Every variant served to browsers must be decoded, resized, stripped, and encoded by Sharp.
@@ -764,7 +835,7 @@ Privacy rules:
 - Do not store raw IP addresses in V1 analytics tables.
 - Hash IP and user agent with a server-side salt if uniqueness is needed.
 - Keep public analytics aggregated only.
-- Owner analytics can be more detailed but should still avoid exposing raw visitor identifiers.
+- Owner analytics can be more detailed but still avoids exposing raw visitor identifiers.
 
 ### ProfileAnalyticsDaily
 
@@ -977,7 +1048,7 @@ Rules:
 - Do not put Puppeteer inside the Spring Boot API container.
 - Do not put image-processing binaries or native dependencies inside the Spring Boot API container unless the API later takes over synchronous variant generation.
 - Keep Java as the owner of profile state, auth, metadata, and public APIs.
-- The worker should call internal API endpoints for profile reads and generated-media completion unless the lab deliberately chooses a shared persistence module for simplicity.
+- The worker calls internal API endpoints for profile reads and generated-media completion.
 
 ### Package Style
 
@@ -1003,7 +1074,7 @@ repositories/
 models/
 ```
 
-The code should make ownership obvious.
+The code makes ownership obvious.
 
 ### Application Service Pattern
 
@@ -1021,7 +1092,7 @@ Example service naming:
 - `AggregateAnalyticsEventService`
 - `CreateMediaUploadService`
 
-Each application service should:
+Each application service:
 
 - Accept one command/query object.
 - Return one result object.
@@ -1039,7 +1110,7 @@ public interface UseCase<C, R> {
 }
 ```
 
-Commands should be explicit records:
+Commands are explicit records:
 
 ```java
 public record CreateLinkCommand(
@@ -1052,7 +1123,7 @@ public record CreateLinkCommand(
 ) {}
 ```
 
-Results should be explicit records:
+Results are explicit records:
 
 ```java
 public record CreateLinkResult(
@@ -1066,16 +1137,16 @@ Do not build one huge `ProfileService` with every method. Small service classes 
 
 ### Controller Rules
 
-Controllers should be thin.
+Controllers are thin.
 
-They should:
+They:
 
 - Validate request shape.
 - Resolve authenticated actor.
 - Call one application service.
 - Return DTOs.
 
-They should not:
+They do not:
 
 - Contain business rules.
 - Talk directly to JPA repositories.
@@ -1116,9 +1187,9 @@ Response shape:
 
 Rules:
 
-- Commands that mutate PostgreSQL should run in transactions.
-- Public read queries should be read-only transactions.
-- Kafka publish after DB writes should use an outbox if the event is critical.
+- Commands that mutate PostgreSQL run in transactions.
+- Public read queries use read-only transactions.
+- Kafka publish after DB writes uses an outbox if the event is critical.
 - Analytics ingestion can publish directly to Kafka for V1, because losing a click event is less severe than corrupting profile state.
 
 Recommended V1 event reliability:
@@ -1169,7 +1240,7 @@ Response:
 }
 ```
 
-The response should also set an HTTP-only session cookie.
+The response also sets an HTTP-only session cookie.
 
 `POST /api/auth/login`
 
@@ -1184,23 +1255,63 @@ V1 auth recommendation:
 - This avoids storing JWTs in browser storage and gives Redis a useful production-like role.
 - Use `SameSite=Lax` locally and `SameSite=Strict` or `Lax` in production depending on custom-domain needs.
 - Set `Secure=true` when using HTTPS.
-- Bearer JWTs can be added later for external API clients, but they should not be the default browser auth mechanism.
+- Browser auth uses sessions. Bearer JWTs are reserved for external API clients and are not the browser auth mechanism.
 
 ### Current User
 
 `GET /api/me`
 
-Returns signed-in user and owned profiles.
+Returns signed-in user, personal profiles, organisations, memberships, and organisation profiles visible to the user.
+
+### Organisation Management
+
+`POST /api/organisations`
+
+Creates an organisation and makes the current user its first `OWNER`.
+
+`GET /api/organisations`
+
+Lists organisations where the current user has active membership.
+
+`GET /api/organisations/{organisationId}`
+
+Gets organisation details and membership summary.
+
+`PATCH /api/organisations/{organisationId}`
+
+Updates organisation name or slug. Requires `OWNER` or `ADMIN`.
+
+`POST /api/organisations/{organisationId}/members`
+
+Adds an existing user by email. Requires `OWNER` or `ADMIN`.
+
+`PATCH /api/organisations/{organisationId}/members/{memberId}`
+
+Changes member role or status. Requires `OWNER`, and cannot remove or demote the last owner.
+
+`DELETE /api/organisations/{organisationId}/members/{memberId}`
+
+Removes a member. Requires `OWNER` or `ADMIN`; only `OWNER` can remove another `OWNER`.
 
 ### Profile Management
 
 `POST /api/profiles`
 
-Creates a profile.
+Creates a personal profile or organisation-owned profile.
+
+Request owner fields:
+
+```json
+{
+  "ownerType": "ORGANISATION",
+  "ownerOrganisationId": "018f0d8d-...",
+  "username": "loftwah"
+}
+```
 
 `GET /api/profiles`
 
-Lists profiles owned by current user.
+Lists profiles the current user can manage directly or through organisation membership.
 
 `GET /api/profiles/{profileId}`
 
@@ -1832,7 +1943,11 @@ Public routes:
 Authenticated routes:
 
 - `/dashboard`
-  - Overview of owned profiles.
+  - Overview of personal and organisation profiles the user can access.
+- `/dashboard/organisations`
+- `/dashboard/organisations/new`
+- `/dashboard/organisations/$organisationId/settings`
+- `/dashboard/organisations/$organisationId/members`
 - `/dashboard/profiles/new`
 - `/dashboard/profiles/$profileId`
   - Profile editor.
@@ -1857,7 +1972,7 @@ Must include:
 - Tags.
 - Link cards.
 - Achievement cards.
-- Public analytics if enabled.
+- Public analytics when `showPublicAnalytics = true`.
 - Theme toggle or profile theme handling.
 - SEO metadata and Open Graph tags.
 
@@ -1865,8 +1980,8 @@ Image rendering requirements:
 
 - Use avatar and banner variant URLs from the API response.
 - Do not render the original upload on normal profile pages.
-- Avatar should use fixed dimensions/aspect ratio to prevent layout shift.
-- Banner should use fixed aspect ratio, normally 3:1.
+- Avatar uses fixed dimensions/aspect ratio to prevent layout shift.
+- Banner uses fixed aspect ratio, normally 3:1.
 - Use `srcset` or explicit variant selection for mobile and desktop banners.
 - Set meaningful alt text: `{name}'s avatar`, `{name}'s banner`.
 - If media is missing, show a deterministic generated fallback using initials and the profile accent color.
@@ -1891,10 +2006,11 @@ Improve from original:
 
 ### Dashboard UX Requirements
 
-Dashboard should let a user manage the profile without thinking about database objects.
+Dashboard lets a user manage profiles without thinking about database objects.
 
-Recommended editor layout:
+Editor layout:
 
+- Workspace switcher for personal workspace and organisations.
 - Left or top navigation for sections: Profile, Links, Achievements, Tags, Media, Analytics, Settings.
 - Main editor panel.
 - Live preview panel on desktop.
@@ -1938,11 +2054,11 @@ Analytics UI:
 
 ## 14. Observability And Structured Logging
 
-Full logging stack comes later, but code should be ready now.
+Full logging stack is outside this build, but code emits structured logs now.
 
 ### Structured Logging
 
-Every request should have:
+Every request has:
 
 - `requestId`
 - `traceId` if available
@@ -1953,7 +2069,7 @@ Every request should have:
 - `actorUserId` when signed in
 - `profileId` when relevant
 
-Application service logs should include:
+Application service logs include:
 
 - Service name.
 - Command name.
@@ -2011,29 +2127,26 @@ For now:
 
 ### Authentication
 
-V1 options:
-
-- Spring Session with Redis-backed sessions.
-- JWT access token plus refresh token.
-
-Recommended for lab:
+Browser auth uses Spring Security sessions backed by Redis:
 
 - Use Spring Security with HTTP-only session cookies backed by Redis.
 - Keep frontend and API on the same local origin through ingress or dev proxy.
 - Do not store access tokens in `localStorage`.
 - Add CSRF protection for unsafe methods if cookie auth is used.
 - Use a CSRF cookie/header pattern that works with the React frontend.
-- Keep JWT support as a later optional API-client feature, not the default browser login path.
+- Browser requests do not use JWTs.
 
 ### Authorization
 
 Rules:
 
-- Only profile owner or admin can mutate a profile.
+- Personal profile mutation requires the owning user or admin.
+- Organisation profile mutation requires organisation `OWNER`, `ADMIN`, or `EDITOR`, or app admin.
+- Organisation member and settings mutation follows organisation role rules.
 - Public profile reads require `isPublic = true`.
 - Directory only shows `isPublic = true` and `showInDirectory = true`.
 - Hidden items are excluded unless an unlock path is used.
-- Owner analytics requires profile ownership.
+- Owner analytics requires personal ownership or active organisation membership with `OWNER`, `ADMIN`, `EDITOR`, or `VIEWER`.
 - Public analytics requires `showPublicAnalytics = true`.
 
 ### Input Validation
@@ -2071,14 +2184,14 @@ Use Redis-backed limits:
 
 ### Privacy
 
-Public analytics should show:
+Public analytics shows:
 
 - Total views.
 - Total clicks.
 - Top links by count.
 - Recent trend counts.
 
-Public analytics should not show:
+Public analytics does not show:
 
 - Raw referrers if they could reveal private URLs.
 - IPs.
@@ -2091,7 +2204,7 @@ Owner analytics can show more, but still avoid raw identifiers.
 
 The Kubernetes cluster runs only Linkarooie application workloads.
 
-For this lab stage, k3d should contain:
+For this lab stage, k3d contains:
 
 - `linkarooie-api`
 - `linkarooie-analytics-worker`
@@ -2099,7 +2212,7 @@ For this lab stage, k3d should contain:
 - `linkarooie-media-worker` once generated OG images are enabled.
 - Later: application jobs such as migrations or maintenance tasks.
 
-For this lab stage, k3d should not contain:
+For this lab stage, k3d does not contain:
 
 - PostgreSQL
 - Redis
@@ -2146,13 +2259,13 @@ Mode 1: application process runs directly on your Mac.
 Mode 2: application runs as pods inside k3d.
 
 - API/worker cannot use `localhost` for Compose services, because `localhost` means the pod itself.
-- API/worker should use host bridge addresses such as `host.k3d.internal`.
+- API/worker use host bridge addresses such as `host.k3d.internal`.
 - This is the mode used when testing Kubernetes manifests.
 
 Mode 3: application runs in a real environment.
 
 - API/worker uses managed service endpoints.
-- No application code change should be needed.
+- No application code change is needed.
 
 Local process API environment variables:
 
@@ -2228,7 +2341,7 @@ S3_BUCKET=linkarooie-media-prod
 S3_REGION=ap-southeast-2
 ```
 
-When using AWS S3 directly, `S3_ENDPOINT` can be empty or omitted and the AWS SDK should use the standard regional endpoint.
+When using AWS S3 directly, `S3_ENDPOINT` is empty or omitted and the AWS SDK uses the standard regional endpoint.
 
 ### Kubernetes Resources
 
@@ -2361,13 +2474,13 @@ Key flows:
 
 Generate OpenAPI from Spring.
 
-Frontend should use generated types or a typed API client where possible.
+Frontend uses generated types or a typed API client.
 
 ## 19. Seed Data
 
 Seed the original `loftwah` profile so the rebuilt app visibly matches the old product.
 
-Seeding should be idempotent and separate from schema migrations.
+Seeding is idempotent and separate from schema migrations.
 
 Recommended approach:
 
@@ -2453,6 +2566,8 @@ Future services:
 Owns:
 
 - Users.
+- Organisations.
+- Organisation memberships.
 - Auth.
 - Sessions/tokens.
 - Roles.
@@ -2498,7 +2613,7 @@ Owns:
 - Auth enforcement.
 - Request routing.
 
-For V1, keep this as a modular monolith plus worker. The extraction path should be visible in package boundaries, database ownership comments, event schemas, and DTO boundaries.
+For V1, keep this as a modular monolith plus workers. The extraction path is visible in package boundaries, database ownership comments, event schemas, and DTO boundaries.
 
 ## 21. Implementation Milestones
 
@@ -2515,6 +2630,8 @@ For V1, keep this as a modular monolith plus worker. The extraction path should 
 ### Milestone 2: Users And Auth
 
 - User table.
+- Organisation table.
+- Organisation membership table.
 - Sign-up.
 - Login.
 - Authenticated `/api/me`.
@@ -2525,6 +2642,7 @@ For V1, keep this as a modular monolith plus worker. The extraction path should 
 ### Milestone 3: Profiles
 
 - Profile table.
+- Profile owner type and owner-subject authorization.
 - Profile CRUD.
 - Username validation.
 - Public profile endpoint.
@@ -2572,6 +2690,8 @@ For V1, keep this as a modular monolith plus worker. The extraction path should 
 
 - Sign-up/login.
 - Dashboard shell.
+- Workspace switcher for personal and organisation profiles.
+- Organisation creation and member management.
 - Profile editor.
 - Links editor.
 - Achievements editor.
@@ -2626,7 +2746,7 @@ For V1, keep this as a modular monolith plus worker. The extraction path should 
 ### Database
 
 - Every schema change is a Flyway migration.
-- Migrations should be deterministic.
+- Migrations are deterministic.
 - Avoid relying on Hibernate auto-DDL outside tests.
 - Add indexes with the feature that needs them.
 
@@ -2647,41 +2767,47 @@ For V1, keep this as a modular monolith plus worker. The extraction path should 
 - Include profile ID/user ID when relevant.
 - Do not log secrets.
 
-## 23. Open Questions
+## 23. Product Decisions
 
-These can be decided during implementation:
-
-- Should each user be limited to one profile in V1 UI, even if the backend supports many?
-- Should public analytics be enabled by default or opt-in?
-- Should the hidden unlock code be global per profile or per hidden item?
-- Should owner analytics include referrer domains in V1?
-- Which milestone should turn on generated Open Graph images in the running lab?
-- Should custom domains be a future feature?
-
-## 24. Recommended V1 Answer To Open Questions
-
-- Backend supports multiple profiles per user; UI starts with one primary profile.
+- Users can own multiple personal profiles.
+- Users can belong to multiple organisations.
+- Personal profiles and organisation profiles live in separate workspaces in the dashboard.
+- Organisation invitations use email.
 - Public analytics is opt-in per profile.
-- Media upload uses API multipart first, then presigned URLs later if desired.
+- Media upload uses API multipart.
 - Public media is returned as stable application URLs that redirect to short-lived signed RustFS/S3 URLs.
 - Hidden unlock code is one profile-level code.
 - Owner analytics includes normalized referrer domains, not full referrer URLs.
-- OG image starts as uploaded/imported media. Generation becomes the Kafka-backed `linkarooie-media-worker` in Milestone 10.
-- Custom domains are future scope.
+- OG image generation is implemented by the Kafka-backed `linkarooie-media-worker`.
+- Custom domains are part of the product scope.
 
-## 25. Definition Of Done For V1
+## 24. Definition Of Done For V1
 
 V1 is done when:
 
 - A new user can sign up.
-- The user can create and publish a profile.
+- The user can verify email and reset their password through real email delivery.
+- The user can create multiple personal profiles.
+- The user can create an organisation/team.
+- The user can invite another user to an organisation/team by email.
+- Organisation members can manage team profiles according to membership role.
+- Personal profiles and team profiles are separated by a workspace switcher.
+- The user can create and publish a personal profile.
+- The user can create and publish an organisation-owned profile.
 - The profile can include avatar, banner, social links, tags, links, achievements, and related work.
+- The profile can include hidden items unlocked by the profile-level unlock code.
 - A public visitor can view `/{username}`.
+- A custom domain can resolve to a public profile.
 - A public visitor can click links through tracked redirects.
 - Analytics events flow through Kafka.
 - Analytics aggregates are visible to the owner.
 - Public analytics can be enabled on the profile.
 - Public directory lists eligible profiles.
+- Generated OG images are created by the media worker and stored as Sharp-optimized JPEGs.
+- Profile import from the legacy TypeScript/JSON shape works.
+- Profile export as JSON works.
+- Webhook events can be configured and delivered.
+- Admins can moderate directory visibility and disable abusive profiles.
 - API, analytics worker, and frontend run locally.
 - API, analytics worker, and frontend build as containers.
 - Images can be pushed to GHCR.
@@ -2689,7 +2815,7 @@ V1 is done when:
 - Logs include request IDs and useful structured fields.
 - The old `loftwah` profile exists as seed/demo data.
 
-## 26. Standalone Legacy Source Inventory
+## 25. Standalone Legacy Source Inventory
 
 This section exists so the lab spec can be moved away from the original Astro repository and still preserve the original Linkarooie product details.
 
@@ -2818,7 +2944,7 @@ Backend model mapping:
 - `Profile.tags[].related_work[]` becomes rows in `related_work`.
 - `Link.hidden` becomes `links.is_hidden`.
 - `Achievement.hidden` becomes `achievements.is_hidden`.
-- `Achievement.date` should be stored as both a display string and, when parseable, a structured date.
+- `Achievement.date` is stored as both a display string and, when parseable, a structured date.
 - `Link.id` and `Achievement.id` from the static project become stable `legacy_key` or `public_slug` values. Keep them in the database so seed data is deterministic.
 - FontAwesome icon class strings can be stored directly in V1 as `icon`. Add an allowlist later if abuse becomes a concern.
 
@@ -2845,11 +2971,11 @@ Original page behavior to preserve:
 - Hidden links and achievements are not rendered as normal public cards.
 - Hidden items are revealed by typing the unlock code.
 - Tag buttons open a modal containing tag description, citation link, and related work.
-- Public links include tracking attributes in the old app; in the rebuild, they should route through tracked redirects.
+- Public links include tracking attributes in the old app; in the rebuild, they route through tracked redirects.
 - The layout includes a dark/light toggle with local preference persistence.
-- Open Graph metadata should use profile-level title, description, and image when present.
+- Open Graph metadata uses profile-level title, description, and image.
 
-## 27. Required Media And Static Asset Manifest
+## 26. Required Media And Static Asset Manifest
 
 The Markdown spec cannot usefully embed large binary images. To rebuild the app 1-for-1, copy these assets from the old Linkarooie repo into the lab repo before the old repo is no longer available.
 
@@ -2930,7 +3056,7 @@ Asset rules:
 - Prefer JPEG for photographic banners, hero images, site-wide OG images, and generated profile OG images.
 - Prefer PNG or WebP for app icons, default avatars, and small generated graphics that need transparency or crisp edges.
 - Do not use SVG for user-uploaded media in V1.
-- SVG is acceptable only for trusted, static build-time assets. The old `background.svg` can be retained as a trusted seed asset, but the new UI should not depend on SVG for icons.
+- SVG is acceptable only for trusted, static build-time assets. The old `background.svg` is retained as a trusted seed asset, but the new UI does not depend on SVG for icons.
 - Use Font Awesome for UI and profile item icons rather than storing icon SVGs in the media system.
 - Keep generated OG images at exactly 1200x630 JPEG because social platforms expect a 1.91:1 card and JPEG gives much smaller share-card files than PNG for this use case.
 - Store source images large enough to regenerate variants, but serve public pages from variants only.
@@ -2950,7 +3076,7 @@ cp public/fonts/* seed-assets/linkarooie/fonts/
 tar -czf linkarooie-seed-assets.tgz seed-assets/linkarooie
 ```
 
-The lab repo should commit `seed-assets/linkarooie` if the goal is fully reproducible local seeding. If you do not want binary seed assets in Git, store `linkarooie-seed-assets.tgz` in object storage or attach it to the lab release and keep the manifest below in Git.
+The lab repo commits `seed-assets/linkarooie` for fully reproducible local seeding. If binary seed assets are not committed, store `linkarooie-seed-assets.tgz` in object storage or attach it to the lab release and keep the manifest below in Git.
 
 Required media files:
 
@@ -3039,7 +3165,7 @@ Upload profile media objects:
 
 For V1, favicons and fonts can be bundled into the frontend image under `public/` rather than uploaded to RustFS.
 
-Seed `media_assets` rows should preserve:
+Seed `media_assets` rows preserve:
 
 - Original filename.
 - Bucket.
@@ -3053,9 +3179,9 @@ Seed `media_assets` rows should preserve:
 
 If the old binary assets are not available, create placeholder files with the same logical roles and dimensions. Do not block application development on exact images, but keep the same DB fields and object key structure.
 
-## 28. Exact Loftwah Seed Profile Fixture
+## 27. Exact Loftwah Seed Profile Fixture
 
-This JSON is the canonical V1 seed fixture. It should be enough to recreate the original public profile content without reading the old TypeScript file.
+This JSON is the canonical V1 seed fixture. It recreates the original public profile content without reading the old TypeScript file.
 
 Implementation rule:
 
@@ -3065,7 +3191,7 @@ Implementation rule:
 - Insert social links, links, achievements, tags, and related work in the order shown.
 - Preserve each `legacyKey`.
 - Set `displayOrder` using the array order starting at `0`.
-- For hidden items, set `isHidden = true` and `isVisible = true`; the public profile endpoint should still omit them until unlocked.
+- For hidden items, set `isHidden = true` and `isVisible = true`; the public profile endpoint omits them until unlocked.
 
 ```json
 {
@@ -3524,7 +3650,7 @@ Implementation rule:
 }
 ```
 
-## 29. Database Columns Needed To Preserve Legacy Data
+## 28. Database Columns Needed To Preserve Legacy Data
 
 The earlier domain model is the conceptual model. This section lists concrete columns needed so none of the old profile data gets lost.
 
@@ -3548,13 +3674,45 @@ Seed notes:
 - The seed user can use a disabled local password or a generated dev-only password.
 - Do not ship a known production password.
 
+### `organisations`
+
+Required columns:
+
+- `id uuid primary key`
+- `legacy_key text unique`
+- `name text not null`
+- `slug text not null unique`
+- `created_by_user_id uuid not null references users(id)`
+- `status text not null default 'ACTIVE'`
+- `created_at timestamptz not null`
+- `updated_at timestamptz not null`
+
+### `organisation_members`
+
+Required columns:
+
+- `id uuid primary key`
+- `organisation_id uuid not null references organisations(id)`
+- `user_id uuid not null references users(id)`
+- `role text not null`
+- `status text not null default 'ACTIVE'`
+- `created_at timestamptz not null`
+- `updated_at timestamptz not null`
+
+Indexes:
+
+- Unique active membership on `(organisation_id, user_id)`.
+- Index by `user_id` for `/api/me` and dashboard organisation listing.
+
 ### `profiles`
 
 Required columns:
 
 - `id uuid primary key`
 - `legacy_key text unique`
-- `owner_user_id uuid not null references users(id)`
+- `owner_type text not null`
+- `owner_user_id uuid null references users(id)`
+- `owner_organisation_id uuid null references organisations(id)`
 - `username text not null`
 - `name text not null`
 - `description text not null`
@@ -3573,13 +3731,20 @@ Required columns:
 - `created_at timestamptz not null`
 - `updated_at timestamptz not null`
 
+Constraints:
+
+- If `owner_type = 'USER'`, `owner_user_id` is required and `owner_organisation_id` is null.
+- If `owner_type = 'ORGANISATION'`, `owner_organisation_id` is required and `owner_user_id` is null.
+
 ### `media_assets`
 
 Required columns:
 
 - `id uuid primary key`
 - `legacy_key text unique`
-- `owner_user_id uuid not null references users(id)`
+- `owner_type text not null`
+- `owner_user_id uuid null references users(id)`
+- `owner_organisation_id uuid null references organisations(id)`
 - `profile_id uuid null references profiles(id)`
 - `bucket text not null`
 - `object_key text not null`
@@ -3708,9 +3873,9 @@ Required columns:
 - `created_at timestamptz not null`
 - `updated_at timestamptz not null`
 
-## 30. OG Image Generation Requirements
+## 29. OG Image Generation Requirements
 
-The old project has two OG generation scripts. The rebuild does not need full OG generation in the first CRUD milestone, but the spec should preserve the behavior for a Kafka-backed media job.
+The old project has two OG generation scripts. The rebuild implements the behavior through a Kafka-backed media job.
 
 ### Implementation Decision
 
@@ -3920,7 +4085,7 @@ Profile banner rendering:
 Application pages:
 
 - Home and directory pages use the site-wide default OG image unless a page-specific OG image exists.
-- Auth and dashboard pages should set conservative noindex metadata and can use the site-wide OG image if shared accidentally.
+- Auth and dashboard pages set conservative noindex metadata and use the site-wide OG image if shared accidentally.
 - OG URLs must be absolute public URLs, not RustFS internal URLs.
 
 ### Regeneration Triggers
@@ -3936,7 +4101,7 @@ Publish `PROFILE_OG_IMAGE_STALE` after these changes:
 
 Do not regenerate on analytics-only events, private dashboard edits that are not visible publicly, or hidden link/achievement changes unless those fields appear in the OG template.
 
-## 31. Review Pass Decisions
+## 30. Review Pass Decisions
 
 These are the main design decisions after reviewing the spec for implementation risk.
 
@@ -3948,6 +4113,7 @@ Use:
 
 - One API application.
 - One analytics worker.
+- One media worker.
 - One frontend application.
 - Shared backend modules for domain, persistence, eventing, contracts, and observability.
 
@@ -3966,7 +4132,7 @@ Reason:
 - Safer than putting JWTs in browser storage.
 - Easier to reason about for a same-origin React plus Spring Boot app.
 - Gives Redis a real production-like role.
-- JWT can still be added later for external API clients.
+- External API clients are outside the browser auth path.
 
 ### Treat Media As A First-Class Domain
 
@@ -3988,7 +4154,7 @@ Reason:
 
 ### Keep Seed Import Separate From Flyway
 
-Flyway should create schema. A seed importer should upload assets and upsert the example profile.
+Flyway creates schema. A seed importer uploads assets and upserts the example profile.
 
 Reason:
 
@@ -3999,7 +4165,7 @@ Reason:
 
 ### Use Redirects For Tracked External Clicks
 
-Links, social links, and achievements should use app redirect URLs.
+Links, social links, and achievements use app redirect URLs.
 
 Reason:
 
@@ -4009,7 +4175,7 @@ Reason:
 
 ### Keep Public Analytics Aggregated
 
-Public analytics should never expose visitor-level records.
+Public analytics never exposes visitor-level records.
 
 Reason:
 
@@ -4017,11 +4183,11 @@ Reason:
 - It keeps the product simple.
 - Owner analytics can still show useful aggregate breakdowns.
 
-### Defer OG Generation Until After Core CRUD
+### Sequence OG Generation After Core CRUD
 
-Start with uploaded/imported OG images. Add Kafka-backed OG generation after profiles, media, and analytics work.
+Build generated OG images after profiles, media, and analytics are in place.
 
 Reason:
 
-- OG generation is valuable but not necessary for the first usable app.
-- It becomes a good later async job once Kafka and media storage are already working.
+- OG generation depends on profile data, media variants, Kafka, and RustFS/S3 being operational.
+- Keeping it after those foundations reduces rework while keeping it inside the product scope.
