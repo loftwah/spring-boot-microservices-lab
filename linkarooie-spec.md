@@ -87,8 +87,8 @@ The lab already provides centralized services with Docker Compose. Treat these a
 
 Important deployment boundary:
 
-- PostgreSQL, Redis, Kafka, RustFS, Vault, and Jenkins are not application workloads for V1.
-- Do not deploy PostgreSQL, Redis, Kafka, or RustFS into the k3d cluster for this lab stage.
+- PostgreSQL, Redis, Kafka, RustFS, Vault, and Jenkins are not application workloads. They are stood up using Docker Compose and are designed to simulate centralized and managed services locally that we can change in configuration.
+- Do not deploy PostgreSQL, Redis, Kafka, or RustFS or other supporting services into the k3d cluster.
 - The only workloads deployed into k3d are Linkarooie application workloads: API, analytics worker, frontend, and later any application-owned jobs.
 - The application pods running inside k3d connect out to the Docker Compose services through host-reachable addresses.
 - In a real AWS-style environment, the same application containers would stay mostly unchanged and only configuration would change to point at RDS, ElastiCache, S3, and managed Kafka/MSK or another Kafka provider.
