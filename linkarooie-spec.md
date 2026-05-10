@@ -1641,6 +1641,55 @@ App-wide public analytics:
 
 `GET /api/public/analytics?range=30d`
 
+Supported ranges:
+
+- `7d`
+- `30d`
+- `90d`
+- `all`
+
+Rules:
+
+- Default range is `30d`.
+- `all` returns every available aggregate bucket for the profile or app.
+- Range filtering is based on the aggregate date in the app timezone.
+- The API returns the same response shape for every range so charts do not need range-specific rendering logic.
+- Public analytics responses omit private owner-only breakdowns even when `range=all`.
+
+Response shape:
+
+```json
+{
+  "range": "30d",
+  "timezone": "Australia/Melbourne",
+  "summary": {
+    "views": 1234,
+    "uniqueVisitors": 890,
+    "linkClicks": 456,
+    "socialClicks": 78,
+    "achievementClicks": 23,
+    "tagOpens": 67
+  },
+  "series": [
+    {
+      "date": "2026-05-10",
+      "views": 120,
+      "uniqueVisitors": 98,
+      "linkClicks": 44,
+      "socialClicks": 7,
+      "achievementClicks": 2,
+      "tagOpens": 6
+    }
+  ],
+  "topTargets": {
+    "links": [],
+    "socialLinks": [],
+    "achievements": [],
+    "tags": []
+  }
+}
+```
+
 ## 10. Kafka Event Schema
 
 ### Analytics Events
@@ -2042,7 +2091,7 @@ Tags editor:
 
 Analytics UI:
 
-- Time range selector: 7 days, 30 days, 90 days.
+- Time range selector with four options: 7 days, 30 days, 90 days, all time.
 - Profile views.
 - Unique visitors.
 - Link clicks.
@@ -2051,6 +2100,20 @@ Analytics UI:
 - Achievement clicks.
 - Tag opens.
 - Public analytics preview.
+- Charts.
+
+Analytics chart requirements:
+
+- Summary metric cards for views, unique visitors, total clicks, and click-through rate.
+- Time-series line or bar chart for views, unique visitors, and total clicks by day.
+- Top links chart ranked by click count.
+- Social clicks chart grouped by platform.
+- Achievement clicks chart ranked by achievement.
+- Tag opens chart ranked by tag.
+- Empty state when the selected range has no events.
+- Loading and error states for every analytics view.
+- The chart components use the same API response for owner analytics, public profile analytics, and app-wide analytics.
+- The all-time range remains usable with long histories by aggregating to daily buckets first and adding pagination or downsampling only when needed.
 
 ## 14. Observability And Structured Logging
 
@@ -2209,7 +2272,7 @@ For this lab stage, k3d contains:
 - `linkarooie-api`
 - `linkarooie-analytics-worker`
 - `linkarooie-web`
-- `linkarooie-media-worker` once generated OG images are enabled.
+- `linkarooie-media-worker`
 - Later: application jobs such as migrations or maintenance tasks.
 
 For this lab stage, k3d does not contain:
@@ -2238,6 +2301,7 @@ Publish to GitHub Container Registry:
 ```text
 ghcr.io/<owner>/linkarooie-api:<tag>
 ghcr.io/<owner>/linkarooie-analytics-worker:<tag>
+ghcr.io/<owner>/linkarooie-media-worker:<tag>
 ghcr.io/<owner>/linkarooie-web:<tag>
 ```
 
@@ -2282,7 +2346,7 @@ S3_ENDPOINT=http://localhost:9000
 S3_BUCKET=linkarooie-media-local
 S3_ACCESS_KEY=rustfsadmin
 S3_SECRET_KEY=rustfsadmin
-S3_REGION=us-east-1
+S3_REGION=ap-southeast-2
 APP_PUBLIC_BASE_URL=http://localhost:3000
 SESSION_COOKIE_NAME=LINKAROOIE_SESSION
 CSRF_COOKIE_NAME=XSRF-TOKEN
@@ -2303,7 +2367,7 @@ S3_ENDPOINT=http://host.k3d.internal:9000
 S3_BUCKET=linkarooie-media-local
 S3_ACCESS_KEY=rustfsadmin
 S3_SECRET_KEY=rustfsadmin
-S3_REGION=us-east-1
+S3_REGION=ap-southeast-2
 APP_PUBLIC_BASE_URL=http://localhost:3000
 SESSION_COOKIE_NAME=LINKAROOIE_SESSION
 CSRF_COOKIE_NAME=XSRF-TOKEN
@@ -2351,6 +2415,7 @@ Initial manifests:
 - Deployment: `linkarooie-api`
 - Service: `linkarooie-api`
 - Deployment: `linkarooie-analytics-worker`
+- Deployment: `linkarooie-media-worker`
 - Deployment: `linkarooie-web`
 - Service: `linkarooie-web`
 - ConfigMap: non-secret config.
@@ -2393,7 +2458,15 @@ cd backend
 ./gradlew :linkarooie-analytics-worker:bootRun
 ```
 
-4. Start frontend locally.
+4. Start media worker locally.
+
+```bash
+cd media-worker
+npm install
+npm run dev
+```
+
+5. Start frontend locally.
 
 ```bash
 cd frontend
@@ -2401,15 +2474,16 @@ npm install
 npm run dev
 ```
 
-5. Build images.
+6. Build images.
 
 ```bash
 docker build -t ghcr.io/<owner>/linkarooie-api:local -f backend/linkarooie-api/Dockerfile backend
 docker build -t ghcr.io/<owner>/linkarooie-analytics-worker:local -f backend/linkarooie-analytics-worker/Dockerfile backend
+docker build -t ghcr.io/<owner>/linkarooie-media-worker:local media-worker
 docker build -t ghcr.io/<owner>/linkarooie-web:local frontend
 ```
 
-6. Deploy to k3d.
+7. Deploy to k3d.
 
 ```bash
 kubectl apply -f deploy/k8s/local
@@ -2417,7 +2491,7 @@ kubectl apply -f deploy/k8s/local
 
 At this point:
 
-- `linkarooie-api`, `linkarooie-analytics-worker`, and `linkarooie-web` run in k3d.
+- `linkarooie-api`, `linkarooie-analytics-worker`, `linkarooie-media-worker`, and `linkarooie-web` run in k3d.
 - PostgreSQL, Redis, Kafka, and RustFS still run in Docker Compose.
 - The k3d pods reach those Compose services through the host bridge addresses from the Kubernetes ConfigMap/Secret.
 
@@ -2435,15 +2509,20 @@ Test:
 - URL validation.
 - Authorization checks.
 - Analytics aggregation calculations.
+- Analytics range parsing for `7d`, `30d`, `90d`, and `all`.
+- Chart response builders and empty-state summaries.
+- Personal workspace versus organisation workspace authorization.
+- Organisation membership role permissions.
+- Media variant naming and Sharp output metadata mapping.
 
 ### Backend Integration Tests
 
-Use Testcontainers where practical:
+Use Testcontainers:
 
 - PostgreSQL.
 - Redis.
 - Kafka.
-- S3-compatible storage can be tested with MinIO or mocked for V1.
+- S3-compatible storage through MinIO.
 
 Test:
 
@@ -2453,6 +2532,12 @@ Test:
 - Link redirect tracking.
 - Kafka publish/consume flow.
 - Analytics aggregation idempotency.
+- Analytics endpoints for `7d`, `30d`, `90d`, and `all`.
+- Owner analytics authorization for personal profiles and organisation profiles.
+- Public analytics visibility when `showPublicAnalytics` is false and true.
+- Media upload to RustFS/S3-compatible storage and Sharp variant completion.
+- Generated OG media completion endpoint.
+- Organisation creation, member management, and team-owned profile creation.
 
 ### Frontend Tests
 
@@ -2469,12 +2554,49 @@ Key flows:
 - Add/edit/reorder link.
 - Public link click redirects.
 - Analytics screen loads.
+- Analytics time selector changes API query for 7 days, 30 days, 90 days, and all time.
+- Analytics charts render loading, empty, error, and populated states.
+- Workspace switcher separates personal profiles from team profiles.
+- Organisation member management flow.
+- Custom domain profile route resolves to the same public profile view.
+
+### Black-Box Tests
+
+Run black-box tests against the application through HTTP/browser entry points only. Tests do not call repositories, inspect database tables directly, or import application internals.
+
+Environment:
+
+- Supporting services from Docker Compose.
+- Application workloads running locally or in k3d.
+- Seed data loaded through the seed importer.
+
+Test:
+
+- Sign up, verify email, sign in, and reset password through public routes.
+- Create personal profile, publish it, and view it at `/{username}`.
+- Create organisation, invite member by email, accept invite, and create team-owned profile.
+- Confirm personal and team workspaces stay separate in the dashboard.
+- Upload avatar and banner, wait for media variants, and verify public profile uses variant URLs.
+- Generate OG image through Kafka-backed media worker and verify public metadata uses the JPEG OG URL.
+- Click public link redirect and verify analytics count changes through public/owner API.
+- Switch analytics range across 7 days, 30 days, 90 days, and all time, then verify chart data changes consistently.
+- Verify public analytics is hidden when disabled and visible when enabled.
+- Verify custom domain routes to the expected public profile.
+- Verify admin can remove a profile from directory and disable an abusive profile.
 
 ### Contract Tests
 
 Generate OpenAPI from Spring.
 
 Frontend uses generated types or a typed API client.
+
+Contract tests cover:
+
+- Analytics range enum and response shape.
+- Chart series and top-target response fields.
+- Organisation owner/member/profile APIs.
+- Media completion APIs.
+- Error responses for unauthorized workspace/profile access.
 
 ## 19. Seed Data
 
@@ -2675,6 +2797,8 @@ For V1, keep this as a modular monolith plus workers. The extraction path is vis
 - Link redirect tracking.
 - Analytics worker.
 - Daily aggregate tables.
+- Analytics range support for 7 days, 30 days, 90 days, and all time.
+- Analytics API response with summary, series, and top-target chart data.
 - Redis hot counters.
 
 ### Milestone 7: Frontend Public App
@@ -2698,6 +2822,7 @@ For V1, keep this as a modular monolith plus workers. The extraction path is vis
 - Tags editor.
 - Media editor.
 - Owner analytics page.
+- Analytics time selector and charts.
 
 ### Milestone 9: Containers And k3d
 
@@ -2808,9 +2933,9 @@ V1 is done when:
 - Profile export as JSON works.
 - Webhook events can be configured and delivered.
 - Admins can moderate directory visibility and disable abusive profiles.
-- API, analytics worker, and frontend run locally.
-- API, analytics worker, and frontend build as containers.
-- Images can be pushed to GHCR.
+- API, analytics worker, media worker, and frontend run locally.
+- API, analytics worker, media worker, and frontend build as containers.
+- API, analytics worker, media worker, and frontend images can be pushed to GHCR.
 - The app can run in k3d while using PostgreSQL, Redis, Kafka, and RustFS from Docker Compose.
 - Logs include request IDs and useful structured fields.
 - The old `loftwah` profile exists as seed/demo data.
@@ -3033,23 +3158,23 @@ frontend/public/
 
 Canonical asset inventory:
 
-| Asset                      | Purpose                                                        |                      Recommended dimensions | Format                                         | Storage                                                                         |
-| -------------------------- | -------------------------------------------------------------- | ------------------------------------------: | ---------------------------------------------- | ------------------------------------------------------------------------------- |
-| Favicon ICO                | Browser fallback favicon                                       |                             16x16 and 32x32 | ICO                                            | `frontend/public/favicon.ico`                                                   |
-| Small favicons             | Browser tab icons                                              |                                16x16, 32x32 | PNG                                            | `frontend/public/`                                                              |
-| Apple touch icon           | iOS home screen icon                                           |                                     180x180 | PNG                                            | `frontend/public/apple-touch-icon.png`                                          |
-| Android icons              | PWA/install icons                                              |                            192x192, 512x512 | PNG                                            | `frontend/public/`                                                              |
-| Site manifest              | PWA metadata                                                   |                                         n/a | JSON                                           | `frontend/public/site.webmanifest`                                              |
-| App icon/source logo       | Brand icon source                                              |        1024x1024 preferred, 512x512 minimum | PNG                                            | `seed-assets/linkarooie/images/icon.png`, imported as `BRAND`                   |
-| Site-wide OG image         | Default image for home, directory, auth, and fallback metadata |                                    1200x630 | JPEG                                           | `frontend/public/og/site-default.jpg` and/or RustFS `brand/og/site-default.jpg` |
-| Main dark OG image         | Dark-themed brand share card                                   |                                    1200x630 | JPEG                                           | RustFS `brand/og/linkarooie_og_dark.jpg`                                        |
-| Main light OG image        | Light-themed brand share card                                  |                                    1200x630 | JPEG                                           | RustFS `brand/og/linkarooie_og_light.jpg`                                       |
-| Home hero image            | Product/homepage visual                                        |                        1600x900 or 1200x900 | JPEG or PNG                                    | RustFS `brand/hero.*` or frontend static if immutable                           |
-| Default avatar             | Fallback for profiles without uploads                          |                                     512x512 | PNG or WebP                                    | RustFS `brand/defaults/default_avatar.*`                                        |
-| Default banner             | Fallback for profiles without uploads                          | 1500x500 source, variants generated from it | JPEG                                           | RustFS `brand/defaults/default_banner.jpg`                                      |
-| Profile avatar original    | User-uploaded source                                           |   1024x1024 maximum stored after validation | JPEG, PNG, or WebP input                       | RustFS `profiles/{profileId}/avatar/{mediaId}/original.{ext}`                   |
-| Profile banner original    | User-uploaded source                                           |    2400x800 maximum stored after validation | JPEG, PNG, or WebP input                       | RustFS `profiles/{profileId}/banner/{mediaId}/original.{ext}`                   |
-| Generated profile OG image | User profile share card                                        |                                    1200x630 | JPEG                                           | RustFS `profiles/{profileId}/og/{mediaId}/og.jpg`                               |
+| Asset                      | Purpose                                                        |                      Recommended dimensions | Format                   | Storage                                                                         |
+| -------------------------- | -------------------------------------------------------------- | ------------------------------------------: | ------------------------ | ------------------------------------------------------------------------------- |
+| Favicon ICO                | Browser fallback favicon                                       |                             16x16 and 32x32 | ICO                      | `frontend/public/favicon.ico`                                                   |
+| Small favicons             | Browser tab icons                                              |                                16x16, 32x32 | PNG                      | `frontend/public/`                                                              |
+| Apple touch icon           | iOS home screen icon                                           |                                     180x180 | PNG                      | `frontend/public/apple-touch-icon.png`                                          |
+| Android icons              | PWA/install icons                                              |                            192x192, 512x512 | PNG                      | `frontend/public/`                                                              |
+| Site manifest              | PWA metadata                                                   |                                         n/a | JSON                     | `frontend/public/site.webmanifest`                                              |
+| App icon/source logo       | Brand icon source                                              |        1024x1024 preferred, 512x512 minimum | PNG                      | `seed-assets/linkarooie/images/icon.png`, imported as `BRAND`                   |
+| Site-wide OG image         | Default image for home, directory, auth, and fallback metadata |                                    1200x630 | JPEG                     | `frontend/public/og/site-default.jpg` and/or RustFS `brand/og/site-default.jpg` |
+| Main dark OG image         | Dark-themed brand share card                                   |                                    1200x630 | JPEG                     | RustFS `brand/og/linkarooie_og_dark.jpg`                                        |
+| Main light OG image        | Light-themed brand share card                                  |                                    1200x630 | JPEG                     | RustFS `brand/og/linkarooie_og_light.jpg`                                       |
+| Home hero image            | Product/homepage visual                                        |                        1600x900 or 1200x900 | JPEG or PNG              | RustFS `brand/hero.*` or frontend static if immutable                           |
+| Default avatar             | Fallback for profiles without uploads                          |                                     512x512 | PNG or WebP              | RustFS `brand/defaults/default_avatar.*`                                        |
+| Default banner             | Fallback for profiles without uploads                          | 1500x500 source, variants generated from it | JPEG                     | RustFS `brand/defaults/default_banner.jpg`                                      |
+| Profile avatar original    | User-uploaded source                                           |   1024x1024 maximum stored after validation | JPEG, PNG, or WebP input | RustFS `profiles/{profileId}/avatar/{mediaId}/original.{ext}`                   |
+| Profile banner original    | User-uploaded source                                           |    2400x800 maximum stored after validation | JPEG, PNG, or WebP input | RustFS `profiles/{profileId}/banner/{mediaId}/original.{ext}`                   |
+| Generated profile OG image | User profile share card                                        |                                    1200x630 | JPEG                     | RustFS `profiles/{profileId}/og/{mediaId}/og.jpg`                               |
 
 Asset rules:
 
@@ -3080,19 +3205,19 @@ The lab repo commits `seed-assets/linkarooie` for fully reproducible local seedi
 
 Required media files:
 
-| Source file                                 |                                              Purpose | Dimensions |                           Format | SHA-256                                                            |
-| ------------------------------------------- | ---------------------------------------------------: | ---------: | -------------------------------: | ------------------------------------------------------------------ |
-| `src/assets/background.svg`                 |                         Home hero background pattern |  1440x1024 |                              SVG | `a2c94dccaf7921a18dcacdbc39137955c827d60befc9490fdbc838fc090ecd84` |
-| `src/assets/astro.svg`                      | Original Astro starter asset, not required for V1 UI |     115x48 |                              SVG | `f6acc666531071302a93230b4d36ada513eb3743e5550e136caffb3bb6c50105` |
-| `src/assets/images/loftwah_avatar.jpg`      |                                  Seed profile avatar |    400x400 |                             JPEG | `4f4a75d01bf6c04bf55d04c515b2078b43977a9e6634c27b6eabd7d316e260b5` |
-| `src/assets/images/loftwah_banner.jpg`      |                                  Seed profile banner |   1500x500 |                             JPEG | `f13b455fbaa31199094fcb77533a36f1068fcdefc098850325e7956c554798fa` |
+| Source file                                 |                                              Purpose | Dimensions |                                                        Format | SHA-256                                                            |
+| ------------------------------------------- | ---------------------------------------------------: | ---------: | ------------------------------------------------------------: | ------------------------------------------------------------------ |
+| `src/assets/background.svg`                 |                         Home hero background pattern |  1440x1024 |                                                           SVG | `a2c94dccaf7921a18dcacdbc39137955c827d60befc9490fdbc838fc090ecd84` |
+| `src/assets/astro.svg`                      | Original Astro starter asset, not required for V1 UI |     115x48 |                                                           SVG | `f6acc666531071302a93230b4d36ada513eb3743e5550e136caffb3bb6c50105` |
+| `src/assets/images/loftwah_avatar.jpg`      |                                  Seed profile avatar |    400x400 |                                                          JPEG | `4f4a75d01bf6c04bf55d04c515b2078b43977a9e6634c27b6eabd7d316e260b5` |
+| `src/assets/images/loftwah_banner.jpg`      |                                  Seed profile banner |   1500x500 |                                                          JPEG | `f13b455fbaa31199094fcb77533a36f1068fcdefc098850325e7956c554798fa` |
 | `src/assets/images/loftwah_og.jpg`          |                                Seed profile OG image |   1200x630 | PNG data despite `.jpg` filename; transcode to JPEG on import | `928315b2398353c3dbb983dbeb5754d74e876a0b52766717c2563a167f326728` |
-| `src/assets/images/icon.png`                |                                        App icon/logo |    192x192 |                              PNG | `14335e278295a9593f344ae8c1fb1ddb6f18723e2a4c1ebdd188a17f756eaebb` |
-| `src/assets/images/hero.png`                |                                    Home hero preview |  1024x1024 |                              PNG | `8db366ca934a9f7bd99f3ce1517b14012d7c3c850e0afbd123e568868f4e31dc` |
-| `src/assets/images/linkarooie.jpg`          |                            Main OG source/background |   1280x720 |                             JPEG | `56ae3d14d468fb4163b34035a73bfd5960c679759f3252926b1e361c7a65a360` |
-| `src/assets/images/linkarooie_og.jpg`       |                                   Main dark OG image |   1200x630 |                             JPEG | `eb8deb14f097c24f0917d32ffedf040e148484782650d620220cd9da20c7bbbb` |
-| `src/assets/images/linkarooie_og_light.jpg` |                                  Main light OG image |   1200x630 |                             JPEG | `f128622f4ac50141631d8288cea4cc70287c6c5d53e0dbff16b966399a3beb23` |
-| `src/assets/images/linkarooie-meme.jpg`     |                                    Extra brand image |  1024x1024 |                             JPEG | `3d9b6ad3ea304a2702343bc0e4aefac1b1be97fa283495f91825227fdffff60c` |
+| `src/assets/images/icon.png`                |                                        App icon/logo |    192x192 |                                                           PNG | `14335e278295a9593f344ae8c1fb1ddb6f18723e2a4c1ebdd188a17f756eaebb` |
+| `src/assets/images/hero.png`                |                                    Home hero preview |  1024x1024 |                                                           PNG | `8db366ca934a9f7bd99f3ce1517b14012d7c3c850e0afbd123e568868f4e31dc` |
+| `src/assets/images/linkarooie.jpg`          |                            Main OG source/background |   1280x720 |                                                          JPEG | `56ae3d14d468fb4163b34035a73bfd5960c679759f3252926b1e361c7a65a360` |
+| `src/assets/images/linkarooie_og.jpg`       |                                   Main dark OG image |   1200x630 |                                                          JPEG | `eb8deb14f097c24f0917d32ffedf040e148484782650d620220cd9da20c7bbbb` |
+| `src/assets/images/linkarooie_og_light.jpg` |                                  Main light OG image |   1200x630 |                                                          JPEG | `f128622f4ac50141631d8288cea4cc70287c6c5d53e0dbff16b966399a3beb23` |
+| `src/assets/images/linkarooie-meme.jpg`     |                                    Extra brand image |  1024x1024 |                                                          JPEG | `3d9b6ad3ea304a2702343bc0e4aefac1b1be97fa283495f91825227fdffff60c` |
 
 Required favicon/static files:
 
