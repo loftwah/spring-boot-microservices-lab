@@ -67,7 +67,7 @@ The recommended V1 deployment units are:
 
 4. `linkarooie-media-worker`
    - Node.js Kafka consumer added after core CRUD/media uploads are working.
-   - Generates profile Open Graph images from profile data, avatar, banner, tags, and brand assets.
+   - Generates profile Open Graph images from profile data, avatar, banner, and tags.
    - Uses headless Chromium/Puppeteer for HTML and Tailwind rendering.
    - Uses Sharp for metadata stripping, resizing, encoding, dimension inspection, and derivative image sizes.
    - Uploads generated assets to RustFS/S3 and updates media metadata through an internal API endpoint or a narrow persistence adapter.
@@ -926,6 +926,7 @@ backend/
     src/main/java/com/linkarooie/contracts/
 media-worker/
   package.json
+  bun.lock
   src/
     worker.ts
     renderers/
@@ -935,8 +936,16 @@ media-worker/
       optimize.ts
 frontend/
   package.json
+  bun.lock
   src/
 ```
+
+JavaScript runtime/package rule:
+
+- Local development uses Bun for frontend and media-worker commands.
+- Docker images use Node.js LTS as the runtime.
+- `bun.lock` is committed for frontend and media-worker dependency reproducibility.
+- Container builds install dependencies from the committed lockfile and run the built app on Node.js.
 
 Simpler alternative:
 
@@ -2462,16 +2471,16 @@ cd backend
 
 ```bash
 cd media-worker
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 5. Start frontend locally.
 
 ```bash
 cd frontend
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 6. Build images.
@@ -2640,12 +2649,9 @@ Seed profile:
 - Links:
   - My Blog
   - Linux for Pirates! 1 & 2
-  - TechDeck
-  - Downscope
   - Loftwah The Beatsmiff Beats
   - Produced by Loftwah The Beatsmiff
   - LoftwahFM
-  - GRABIT.SH
   - Must haves in DevOps and the road to AI
   - Linux for Pirates! daily.dev squad
   - Bogan Hustler
@@ -2877,6 +2883,9 @@ For V1, keep this as a modular monolith plus workers. The extraction path is vis
 
 ### Frontend
 
+- Use Bun for local install, scripts, and tests.
+- Commit `bun.lock`.
+- Use Node.js LTS in Docker images.
 - Use generated API types where practical.
 - Keep route components focused.
 - Extract reusable editor components.
@@ -2967,15 +2976,9 @@ src/
   styles/
     global.css
   assets/
-    background.svg
-    astro.svg
     images/
       hero.png
       icon.png
-      linkarooie-meme.jpg
-      linkarooie.jpg
-      linkarooie_og.jpg
-      linkarooie_og_light.jpg
       loftwah_avatar.jpg
       loftwah_banner.jpg
       loftwah_og.jpg
@@ -3109,14 +3112,8 @@ Recommended lab location:
 ```text
 seed-assets/linkarooie/
   images/
-    background.svg
-    astro.svg
     hero.png
     icon.png
-    linkarooie-meme.jpg
-    linkarooie.jpg
-    linkarooie_og.jpg
-    linkarooie_og_light.jpg
     loftwah_avatar.jpg
     loftwah_banner.jpg
     loftwah_og.jpg
@@ -3158,30 +3155,28 @@ frontend/public/
 
 Canonical asset inventory:
 
-| Asset                      | Purpose                                                        |                      Recommended dimensions | Format                   | Storage                                                                         |
-| -------------------------- | -------------------------------------------------------------- | ------------------------------------------: | ------------------------ | ------------------------------------------------------------------------------- |
-| Favicon ICO                | Browser fallback favicon                                       |                             16x16 and 32x32 | ICO                      | `frontend/public/favicon.ico`                                                   |
-| Small favicons             | Browser tab icons                                              |                                16x16, 32x32 | PNG                      | `frontend/public/`                                                              |
-| Apple touch icon           | iOS home screen icon                                           |                                     180x180 | PNG                      | `frontend/public/apple-touch-icon.png`                                          |
-| Android icons              | PWA/install icons                                              |                            192x192, 512x512 | PNG                      | `frontend/public/`                                                              |
-| Site manifest              | PWA metadata                                                   |                                         n/a | JSON                     | `frontend/public/site.webmanifest`                                              |
-| App icon/source logo       | Brand icon source                                              |        1024x1024 preferred, 512x512 minimum | PNG                      | `seed-assets/linkarooie/images/icon.png`, imported as `BRAND`                   |
-| Site-wide OG image         | Default image for home, directory, auth, and fallback metadata |                                    1200x630 | JPEG                     | `frontend/public/og/site-default.jpg` and/or RustFS `brand/og/site-default.jpg` |
-| Main dark OG image         | Dark-themed brand share card                                   |                                    1200x630 | JPEG                     | RustFS `brand/og/linkarooie_og_dark.jpg`                                        |
-| Main light OG image        | Light-themed brand share card                                  |                                    1200x630 | JPEG                     | RustFS `brand/og/linkarooie_og_light.jpg`                                       |
-| Home hero image            | Product/homepage visual                                        |                        1600x900 or 1200x900 | JPEG or PNG              | RustFS `brand/hero.*` or frontend static if immutable                           |
-| Default avatar             | Fallback for profiles without uploads                          |                                     512x512 | PNG or WebP              | RustFS `brand/defaults/default_avatar.*`                                        |
-| Default banner             | Fallback for profiles without uploads                          | 1500x500 source, variants generated from it | JPEG                     | RustFS `brand/defaults/default_banner.jpg`                                      |
-| Profile avatar original    | User-uploaded source                                           |   1024x1024 maximum stored after validation | JPEG, PNG, or WebP input | RustFS `profiles/{profileId}/avatar/{mediaId}/original.{ext}`                   |
-| Profile banner original    | User-uploaded source                                           |    2400x800 maximum stored after validation | JPEG, PNG, or WebP input | RustFS `profiles/{profileId}/banner/{mediaId}/original.{ext}`                   |
-| Generated profile OG image | User profile share card                                        |                                    1200x630 | JPEG                     | RustFS `profiles/{profileId}/og/{mediaId}/og.jpg`                               |
+| Asset                      | Purpose                                                        |                    Recommended dimensions | Format                   | Storage                                                                         |
+| -------------------------- | -------------------------------------------------------------- | ----------------------------------------: | ------------------------ | ------------------------------------------------------------------------------- |
+| Favicon ICO                | Browser fallback favicon                                       |                           16x16 and 32x32 | ICO                      | `frontend/public/favicon.ico`                                                   |
+| Small favicons             | Browser tab icons                                              |                              16x16, 32x32 | PNG                      | `frontend/public/`                                                              |
+| Apple touch icon           | iOS home screen icon                                           |                                   180x180 | PNG                      | `frontend/public/apple-touch-icon.png`                                          |
+| Android icons              | PWA/install icons                                              |                          192x192, 512x512 | PNG                      | `frontend/public/`                                                              |
+| Site manifest              | PWA metadata                                                   |                                       n/a | JSON                     | `frontend/public/site.webmanifest`                                              |
+| App icon/source logo       | Brand icon source                                              |      1024x1024 preferred, 512x512 minimum | PNG                      | `seed-assets/linkarooie/images/icon.png`, imported as `BRAND`                   |
+| Site-wide OG image         | Default image for home, directory, auth, and fallback metadata |                                  1200x630 | JPEG                     | `frontend/public/og/site-default.jpg` and/or RustFS `brand/og/site-default.jpg` |
+| Home hero image            | Product/homepage visual                                        |                      1600x900 or 1200x900 | JPEG or PNG              | RustFS `brand/hero.*` or frontend static if immutable                           |
+| Default avatar             | Fallback for profiles without uploads                          |                                 1024x1024 | PNG                      | RustFS `brand/defaults/default_avatar.png`                                      |
+| Default banner             | Fallback for profiles without uploads                          |                                  2400x800 | JPEG                     | RustFS `brand/defaults/default_banner.jpg`                                      |
+| Profile avatar original    | User-uploaded source                                           | 1024x1024 maximum stored after validation | JPEG, PNG, or WebP input | RustFS `profiles/{profileId}/avatar/{mediaId}/original.{ext}`                   |
+| Profile banner original    | User-uploaded source                                           |  2400x800 maximum stored after validation | JPEG, PNG, or WebP input | RustFS `profiles/{profileId}/banner/{mediaId}/original.{ext}`                   |
+| Generated profile OG image | User profile share card                                        |                                  1200x630 | JPEG                     | RustFS `profiles/{profileId}/og/{mediaId}/og.jpg`                               |
 
 Asset rules:
 
 - Prefer JPEG for photographic banners, hero images, site-wide OG images, and generated profile OG images.
 - Prefer PNG or WebP for app icons, default avatars, and small generated graphics that need transparency or crisp edges.
 - Do not use SVG for user-uploaded media in V1.
-- SVG is acceptable only for trusted, static build-time assets. The old `background.svg` is retained as a trusted seed asset, but the new UI does not depend on SVG for icons.
+- Do not copy Astro starter SVG leftovers into the lab asset pack.
 - Use Font Awesome for UI and profile item icons rather than storing icon SVGs in the media system.
 - Keep generated OG images at exactly 1200x630 JPEG because social platforms expect a 1.91:1 card and JPEG gives much smaller share-card files than PNG for this use case.
 - Store source images large enough to regenerate variants, but serve public pages from variants only.
@@ -3192,32 +3187,42 @@ Asset pack export command from the old repo:
 
 ```bash
 mkdir -p seed-assets/linkarooie/images seed-assets/linkarooie/favicons seed-assets/linkarooie/fonts
-cp src/assets/background.svg seed-assets/linkarooie/images/background.svg
-cp src/assets/astro.svg seed-assets/linkarooie/images/astro.svg
-cp src/assets/images/* seed-assets/linkarooie/images/
+cp src/assets/images/hero.png seed-assets/linkarooie/images/
+cp src/assets/images/icon.png seed-assets/linkarooie/images/
+cp src/assets/images/loftwah_avatar.jpg seed-assets/linkarooie/images/
+cp src/assets/images/loftwah_banner.jpg seed-assets/linkarooie/images/
+cp src/assets/images/loftwah_og.jpg seed-assets/linkarooie/images/
 cp public/favicon.ico public/favicon-16x16.png public/favicon-32x32.png seed-assets/linkarooie/favicons/
 cp public/android-chrome-192x192.png public/android-chrome-512x512.png public/apple-touch-icon.png public/site.webmanifest seed-assets/linkarooie/favicons/
 cp public/fonts/* seed-assets/linkarooie/fonts/
+# Create these new assets separately before packaging:
+# seed-assets/linkarooie/images/default_avatar.png   1024x1024 PNG
+# seed-assets/linkarooie/images/default_banner.jpg   2400x800 JPEG
+# seed-assets/linkarooie/images/site_og.jpg          1200x630 JPEG
 tar -czf linkarooie-seed-assets.tgz seed-assets/linkarooie
 ```
 
 The lab repo commits `seed-assets/linkarooie` for fully reproducible local seeding. If binary seed assets are not committed, store `linkarooie-seed-assets.tgz` in object storage or attach it to the lab release and keep the manifest below in Git.
 
+Default asset generation requirements:
+
+- `default_avatar.png`: 1024x1024 PNG source. It is used when a profile has no avatar. It must look acceptable when cropped circular and when resized to 96x96, 256x256, and 512x512 WebP variants.
+- `default_banner.jpg`: 2400x800 JPEG source at 3:1 aspect ratio. It is used when a profile has no banner. It must keep important visual detail inside the center safe area so 900x300, 1200x400, and 1800x600 variants crop cleanly.
+- `site_og.jpg`: 1200x630 JPEG. It is used for non-profile pages and as the final fallback when a profile OG image is unavailable.
+- Generated profile OG images do not need extra decorative source media. The OG template uses the profile avatar, profile banner, profile text, public tag names, theme colors, and the default avatar/banner when profile media is missing.
+
 Required media files:
 
-| Source file                                 |                                              Purpose | Dimensions |                                                        Format | SHA-256                                                            |
-| ------------------------------------------- | ---------------------------------------------------: | ---------: | ------------------------------------------------------------: | ------------------------------------------------------------------ |
-| `src/assets/background.svg`                 |                         Home hero background pattern |  1440x1024 |                                                           SVG | `a2c94dccaf7921a18dcacdbc39137955c827d60befc9490fdbc838fc090ecd84` |
-| `src/assets/astro.svg`                      | Original Astro starter asset, not required for V1 UI |     115x48 |                                                           SVG | `f6acc666531071302a93230b4d36ada513eb3743e5550e136caffb3bb6c50105` |
-| `src/assets/images/loftwah_avatar.jpg`      |                                  Seed profile avatar |    400x400 |                                                          JPEG | `4f4a75d01bf6c04bf55d04c515b2078b43977a9e6634c27b6eabd7d316e260b5` |
-| `src/assets/images/loftwah_banner.jpg`      |                                  Seed profile banner |   1500x500 |                                                          JPEG | `f13b455fbaa31199094fcb77533a36f1068fcdefc098850325e7956c554798fa` |
-| `src/assets/images/loftwah_og.jpg`          |                                Seed profile OG image |   1200x630 | PNG data despite `.jpg` filename; transcode to JPEG on import | `928315b2398353c3dbb983dbeb5754d74e876a0b52766717c2563a167f326728` |
-| `src/assets/images/icon.png`                |                                        App icon/logo |    192x192 |                                                           PNG | `14335e278295a9593f344ae8c1fb1ddb6f18723e2a4c1ebdd188a17f756eaebb` |
-| `src/assets/images/hero.png`                |                                    Home hero preview |  1024x1024 |                                                           PNG | `8db366ca934a9f7bd99f3ce1517b14012d7c3c850e0afbd123e568868f4e31dc` |
-| `src/assets/images/linkarooie.jpg`          |                            Main OG source/background |   1280x720 |                                                          JPEG | `56ae3d14d468fb4163b34035a73bfd5960c679759f3252926b1e361c7a65a360` |
-| `src/assets/images/linkarooie_og.jpg`       |                                   Main dark OG image |   1200x630 |                                                          JPEG | `eb8deb14f097c24f0917d32ffedf040e148484782650d620220cd9da20c7bbbb` |
-| `src/assets/images/linkarooie_og_light.jpg` |                                  Main light OG image |   1200x630 |                                                          JPEG | `f128622f4ac50141631d8288cea4cc70287c6c5d53e0dbff16b966399a3beb23` |
-| `src/assets/images/linkarooie-meme.jpg`     |                                    Extra brand image |  1024x1024 |                                                          JPEG | `3d9b6ad3ea304a2702343bc0e4aefac1b1be97fa283495f91825227fdffff60c` |
+| Source file                                        |                       Purpose | Dimensions |                                                        Format | SHA-256                                                            |
+| -------------------------------------------------- | ----------------------------: | ---------: | ------------------------------------------------------------: | ------------------------------------------------------------------ |
+| `src/assets/images/loftwah_avatar.jpg`             |           Seed profile avatar |    400x400 |                                                          JPEG | `4f4a75d01bf6c04bf55d04c515b2078b43977a9e6634c27b6eabd7d316e260b5` |
+| `src/assets/images/loftwah_banner.jpg`             |           Seed profile banner |   1500x500 |                                                          JPEG | `f13b455fbaa31199094fcb77533a36f1068fcdefc098850325e7956c554798fa` |
+| `src/assets/images/loftwah_og.jpg`                 |         Seed profile OG image |   1200x630 | PNG data despite `.jpg` filename; transcode to JPEG on import | `928315b2398353c3dbb983dbeb5754d74e876a0b52766717c2563a167f326728` |
+| `src/assets/images/icon.png`                       |                 App icon/logo |    192x192 |                                                           PNG | `14335e278295a9593f344ae8c1fb1ddb6f18723e2a4c1ebdd188a17f756eaebb` |
+| `src/assets/images/hero.png`                       |             Home hero preview |  1024x1024 |                                                           PNG | `8db366ca934a9f7bd99f3ce1517b14012d7c3c850e0afbd123e568868f4e31dc` |
+| `seed-assets/linkarooie/images/default_avatar.png` | Default profile avatar source |  1024x1024 |                                                           PNG | Generated; record SHA-256 after creation                           |
+| `seed-assets/linkarooie/images/default_banner.jpg` | Default profile banner source |   2400x800 |                                                          JPEG | Generated; record SHA-256 after creation                           |
+| `seed-assets/linkarooie/images/site_og.jpg`        |    Site-wide default OG image |   1200x630 |                                                          JPEG | Generated; record SHA-256 after creation                           |
 
 Required favicon/static files:
 
@@ -3274,19 +3279,16 @@ linkarooie-media-local
 
 Upload profile media objects:
 
-| Logical asset           | Source asset                                            | RustFS object key                            | DB `purpose`     | Content type    |
-| ----------------------- | ------------------------------------------------------- | -------------------------------------------- | ---------------- | --------------- |
-| Loftwah avatar          | `seed-assets/linkarooie/images/loftwah_avatar.jpg`      | `profiles/loftwah/avatar/loftwah_avatar.jpg` | `AVATAR`         | `image/jpeg`    |
-| Loftwah banner          | `seed-assets/linkarooie/images/loftwah_banner.jpg`      | `profiles/loftwah/banner/loftwah_banner.jpg` | `BANNER`         | `image/jpeg`    |
-| Loftwah OG image        | `seed-assets/linkarooie/images/loftwah_og.jpg`          | `profiles/loftwah/og/loftwah_og.jpg`         | `OG_IMAGE`       | `image/jpeg`    |
-| App icon                | `seed-assets/linkarooie/images/icon.png`                | `brand/icon.png`                             | `BRAND`          | `image/png`     |
-| Home hero               | `seed-assets/linkarooie/images/hero.png`                | `brand/hero.png`                             | `HERO`           | `image/png`     |
-| Default avatar          | `seed-assets/linkarooie/images/default_avatar.png`      | `brand/defaults/default_avatar.png`          | `DEFAULT_AVATAR` | `image/png`     |
-| Default banner          | `seed-assets/linkarooie/images/default_banner.jpg`      | `brand/defaults/default_banner.jpg`          | `DEFAULT_BANNER` | `image/jpeg`    |
-| Site-wide default OG    | `seed-assets/linkarooie/images/site_og.jpg`             | `brand/og/site-default.jpg`                  | `BRAND_OG`       | `image/jpeg`    |
-| Home background pattern | `seed-assets/linkarooie/images/background.svg`          | `brand/background.svg`                       | `BRAND`          | `image/svg+xml` |
-| Main dark OG            | `seed-assets/linkarooie/images/linkarooie_og.jpg`       | `brand/og/linkarooie_og_dark.jpg`            | `BRAND_OG`       | `image/jpeg`    |
-| Main light OG           | `seed-assets/linkarooie/images/linkarooie_og_light.jpg` | `brand/og/linkarooie_og_light.jpg`           | `BRAND_OG`       | `image/jpeg`    |
+| Logical asset        | Source asset                                       | RustFS object key                            | DB `purpose`     | Content type |
+| -------------------- | -------------------------------------------------- | -------------------------------------------- | ---------------- | ------------ |
+| Loftwah avatar       | `seed-assets/linkarooie/images/loftwah_avatar.jpg` | `profiles/loftwah/avatar/loftwah_avatar.jpg` | `AVATAR`         | `image/jpeg` |
+| Loftwah banner       | `seed-assets/linkarooie/images/loftwah_banner.jpg` | `profiles/loftwah/banner/loftwah_banner.jpg` | `BANNER`         | `image/jpeg` |
+| Loftwah OG image     | `seed-assets/linkarooie/images/loftwah_og.jpg`     | `profiles/loftwah/og/loftwah_og.jpg`         | `OG_IMAGE`       | `image/jpeg` |
+| App icon             | `seed-assets/linkarooie/images/icon.png`           | `brand/icon.png`                             | `BRAND`          | `image/png`  |
+| Home hero            | `seed-assets/linkarooie/images/hero.png`           | `brand/hero.png`                             | `HERO`           | `image/png`  |
+| Default avatar       | `seed-assets/linkarooie/images/default_avatar.png` | `brand/defaults/default_avatar.png`          | `DEFAULT_AVATAR` | `image/png`  |
+| Default banner       | `seed-assets/linkarooie/images/default_banner.jpg` | `brand/defaults/default_banner.jpg`          | `DEFAULT_BANNER` | `image/jpeg` |
+| Site-wide default OG | `seed-assets/linkarooie/images/site_og.jpg`        | `brand/og/site-default.jpg`                  | `BRAND_OG`       | `image/jpeg` |
 
 For V1, favicons and fonts can be bundled into the frontend image under `public/` rather than uploaded to RustFS.
 
@@ -3382,7 +3384,7 @@ Implementation rule:
     {
       "legacyKey": "bluesky",
       "platform": "bluesky",
-      "url": "https://bsky.app/profile/loftwah.bsky.social",
+      "url": "https://bsky.app/profile/loftwah.com",
       "isVisible": true
     },
     {
@@ -3412,24 +3414,6 @@ Implementation rule:
       "isHidden": false
     },
     {
-      "legacyKey": "techdeck",
-      "title": "TechDeck",
-      "description": "AI generated trading cards for tech profiles with stats and moves.",
-      "url": "https://techdeck.life",
-      "icon": "fa-solid fa-id-card",
-      "isVisible": true,
-      "isHidden": false
-    },
-    {
-      "legacyKey": "downscope",
-      "title": "Downscope",
-      "description": "A short story about a chaotic couple of days at a SaaS company.",
-      "url": "https://downscope.deanlofts.xyz",
-      "icon": "fa-solid fa-book",
-      "isVisible": true,
-      "isHidden": false
-    },
-    {
       "legacyKey": "beats",
       "title": "Loftwah The Beatsmiff Beats",
       "description": "A big playlist of beats I have made over the years.",
@@ -3453,15 +3437,6 @@ Implementation rule:
       "description": "My music hub. Originals, remixes, playlists, and AI experiments in one place.",
       "url": "https://fm.loftwah.com",
       "icon": "fa-solid fa-headphones",
-      "isVisible": true,
-      "isHidden": false
-    },
-    {
-      "legacyKey": "grabit",
-      "title": "GRABIT.SH",
-      "description": "CLI that pulls key info from repos so you can summarise and prompt faster.",
-      "url": "https://grabit.sh",
-      "icon": "fa-solid fa-magnifying-glass",
       "isVisible": true,
       "isHidden": false
     },
@@ -3610,11 +3585,6 @@ Implementation rule:
         "url": "https://astro.build/"
       },
       "relatedWork": [
-        {
-          "title": "Linkarooie",
-          "url": "https://linkarooie.com/",
-          "description": "Open source link in bio built with Astro."
-        },
         {
           "title": "My Blog",
           "url": "https://blog.deanlofts.xyz/",
@@ -4019,6 +3989,7 @@ Sharp is not optional. No screenshot, upload, default image, hero image, brand i
 Recommended worker stack:
 
 - Node.js LTS.
+- Bun for local package install and dev commands.
 - TypeScript.
 - Puppeteer with bundled or system Chromium.
 - React server rendering or a small Vite/TSX renderer for OG templates.
@@ -4087,7 +4058,8 @@ Inputs:
 - Username.
 - Description.
 - Bio.
-- Avatar image.
+- Avatar image, falling back to `default_avatar.png`.
+- Banner image, falling back to `default_banner.jpg`.
 - Up to 16 tag names.
 - Inter regular and bold fonts.
 - Theme argument: `dark` or `light`.
@@ -4131,12 +4103,13 @@ Layout:
 - Description: 26px medium.
 - Bio: 24px, line height 1.6, max width 800px.
 - Tags: flex wrap, max 16 tags, 20px font, rounded pill.
-- Footer: `linkarooie.com` in accent color.
+- Footer: configured public app host in accent color.
 
 Implementation:
 
 - API publishes `PROFILE_OG_IMAGE_STALE` to Kafka when a relevant profile field changes.
-- Media worker generates the image and uploads it to RustFS/S3.
+- Media worker generates the image from profile data, avatar, banner, public tags, and theme colors, then uploads it to RustFS/S3.
+- Media worker does not require extra decorative source images for profile OG generation.
 - `profiles.og_media_id` is updated when ready.
 - Until generation is enabled, seed or uploaded OG images are valid fallbacks.
 
@@ -4150,18 +4123,17 @@ scripts/generate-main-og-image.ts
 
 Inputs:
 
-- Background image: `linkarooie.jpg`.
 - Title: `Linkarooie`.
 - Subtitle: `Simplify your online presence`.
 - Description: `A Linktree-style app to showcase your profile, links, and achievements`.
-- URL text: `linkarooie.com`.
+- URL text: configured public app host.
 - Inter regular and bold fonts.
 - Theme argument: `dark` or `light`.
 
 Output:
 
 - 1200x630 JPEG.
-- Writes to `src/assets/images/linkarooie_og.jpg`.
+- Writes to `seed-assets/linkarooie/images/site_og.jpg` for seed import and `frontend/public/og/site-default.jpg` for static fallback.
 
 Dark colors:
 
@@ -4182,7 +4154,7 @@ Light colors:
 Layout:
 
 - Canvas: 1200x630.
-- Full background image with object fit cover.
+- Brand background using theme colors and subtle generated texture from CSS.
 - Centered overlay.
 - Title: 80px bold accent.
 - Subtitle: 40px.
