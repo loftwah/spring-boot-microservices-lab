@@ -65,6 +65,14 @@ The recommended V1 deployment units are:
    - TanStack React application with Tailwind CSS v4.
    - Public profile pages, directory, sign-in/sign-up, dashboard, profile editor, link editor, achievement editor, analytics screens.
 
+4. `linkarooie-media-worker`
+   - Node.js Kafka consumer added after core CRUD/media uploads are working.
+   - Generates profile Open Graph images from profile data, avatar, banner, tags, and brand assets.
+   - Uses headless Chromium/Puppeteer for HTML and Tailwind rendering.
+   - Uses Sharp for metadata stripping, resizing, encoding, dimension inspection, and derivative image sizes.
+   - Uploads generated assets to RustFS/S3 and updates media metadata through an internal API endpoint or a narrow persistence adapter.
+   - Generates avatar, banner, default media, brand media, and OG variants used by public pages.
+
 This gives the lab enough moving parts to practice application containers, Kafka, Redis, S3, Postgres, k3d, Kubernetes manifests, and GHCR without forcing premature distributed-system complexity.
 
 The backend code should still be organized as if these modules could later become true microservices:
@@ -90,6 +98,7 @@ Important deployment boundary:
 - PostgreSQL, Redis, Kafka, RustFS, Vault, and Jenkins are not application workloads. They are stood up using Docker Compose and are designed to simulate centralized and managed services locally that we can change in configuration.
 - Do not deploy PostgreSQL, Redis, Kafka, or RustFS or other supporting services into the k3d cluster.
 - The only workloads deployed into k3d are Linkarooie application workloads: API, analytics worker, frontend, and later any application-owned jobs.
+- The media worker is an application workload. When enabled, deploy it beside the API, analytics worker, and frontend; do not treat it as a supporting service like Kafka or RustFS.
 - The application pods running inside k3d connect out to the Docker Compose services through host-reachable addresses.
 - In a real AWS-style environment, the same application containers would stay mostly unchanged and only configuration would change to point at RDS, ElastiCache, S3, and managed Kafka/MSK or another Kafka provider.
 
@@ -169,7 +178,7 @@ Recommended usage:
 Purpose:
 
 - Analytics event stream.
-- Future async workflows such as OG image generation, media processing, audit logs, notification events, and search indexing.
+- Async workflows such as analytics aggregation, OG image generation, media processing, audit logs, notification events, and search indexing.
 
 Local Compose:
 
@@ -187,10 +196,10 @@ Initial topics:
 
 - `linkarooie.analytics.events.v1`
 - `linkarooie.audit.events.v1`
-- `linkarooie.media.events.v1` later.
+- `linkarooie.media.events.v1`
 - `linkarooie.profile.events.v1` later.
 
-For V1, only `linkarooie.analytics.events.v1` is required.
+For the first usable CRUD milestone, only `linkarooie.analytics.events.v1` is required. Before generated OG images are enabled, add `linkarooie.media.events.v1`.
 
 Kafka event principles:
 
@@ -199,6 +208,17 @@ Kafka event principles:
 - Consumers must be idempotent.
 - Keep event schemas versioned.
 - Include `occurredAt`, `receivedAt`, `profileId`, optional `userId`, `anonymousVisitorId`, `requestId`, and event type.
+
+Media event principles:
+
+- Kafka is the trigger for generated OG image work and media variant generation.
+- The API publishes `MEDIA_VARIANTS_REQUESTED` after avatar, banner, default media, hero, or brand image originals are accepted.
+- The API publishes a fact such as `PROFILE_OG_IMAGE_STALE` after a profile, avatar, banner, display name, description, bio, public tags, or theme-relevant brand setting changes.
+- The media worker consumes the event and loads the current profile state before rendering. The event should not contain all profile HTML.
+- Include `profileVersion` or `mediaVersion` in the event so stale jobs can be ignored if a newer profile update already happened.
+- Use `profileId` as the partition key so OG jobs for the same profile are processed in order.
+- The worker must be idempotent: regenerating the same version should either reuse the existing generated asset or replace only the pending generated result, never overwrite user-uploaded originals.
+- The worker publishes `MEDIA_VARIANTS_READY`, `MEDIA_VARIANTS_FAILED`, `OG_IMAGE_GENERATED`, or `OG_IMAGE_GENERATION_FAILED` back to `linkarooie.media.events.v1` for auditability and retries.
 
 ### RustFS / S3-Compatible Storage
 
@@ -290,7 +310,7 @@ Public access decision:
 
 ### V1 Could Have
 
-- Generated OG image job.
+- Kafka-backed generated OG image job.
 - Hidden profile items with unlock code.
 - Profile preview in editor.
 - Import from the old TypeScript profile format.
@@ -409,9 +429,10 @@ Frontend can still call event ingestion for tag opens and UI-only events.
 4. File lands in RustFS.
 5. API stores media metadata in PostgreSQL.
 6. API validates the stored object by reading metadata and, for images, decoding the file.
-7. API strips EXIF/metadata where possible and creates web-safe variants.
-8. API updates profile media reference to the ready media asset.
-9. API invalidates public profile cache.
+7. API publishes a media variant job to Kafka.
+8. Media worker strips EXIF/metadata and creates web-safe variants with the configured optimizer.
+9. API updates profile media reference to the ready media asset after required variants exist.
+10. API invalidates public profile cache.
 
 For a simple V1, direct multipart upload through the API is acceptable. For a more cloud-realistic V1, use presigned URLs.
 
@@ -423,7 +444,9 @@ Image handling requirements:
 - Reject SVG uploads for user profile media in V1 because SVG can contain active content and is not needed for avatars/banners.
 - Strip EXIF metadata to avoid leaking camera/location data.
 - Store the original object privately.
-- Generate optimized variants for public rendering.
+- Generate optimized variants for every image displayed by the frontend.
+- Sharp is the required optimizer and derivative-image engine.
+- The pipeline may use library decoders for validation, but public display outputs must pass through Sharp.
 - Keep old media objects until the profile update succeeds; clean unreferenced media later with a maintenance job.
 
 ### User Views Analytics
@@ -643,7 +666,7 @@ Fields:
 - `checksum`
 - `width`
 - `height`
-- `purpose`: `AVATAR`, `BANNER`, `OG_IMAGE`, `BRAND`, `BRAND_OG`, `OTHER`
+- `purpose`: `AVATAR`, `BANNER`, `OG_IMAGE`, `DEFAULT_AVATAR`, `DEFAULT_BANNER`, `HERO`, `BRAND`, `BRAND_OG`, `OTHER`
 - `visibility`: `PRIVATE`, `PUBLIC_READ`
 - `status`: `PENDING`, `READY`, `FAILED`, `DELETED`
 - `createdByUploadId`
@@ -668,7 +691,7 @@ Fields:
 
 - `id`
 - `mediaAssetId`
-- `variant`: `AVATAR_SM`, `AVATAR_MD`, `AVATAR_LG`, `BANNER_MD`, `BANNER_LG`, `OG_IMAGE`
+- `variant`: `AVATAR_SM`, `AVATAR_MD`, `AVATAR_LG`, `BANNER_SM`, `BANNER_MD`, `BANNER_LG`, `HERO_MD`, `HERO_LG`, `BRAND_ICON`, `OG_IMAGE`
 - `bucket`
 - `objectKey`
 - `contentType`
@@ -683,15 +706,22 @@ Recommended variants:
 - Avatar small: 96x96 WebP.
 - Avatar medium: 256x256 WebP.
 - Avatar large: 512x512 WebP.
+- Banner small: 900x300 WebP.
 - Banner medium: 1200x400 WebP.
 - Banner large: 1800x600 WebP.
-- OG image: 1200x630 PNG or JPEG.
+- Hero medium: 1200x675 WebP or JPEG.
+- Hero large: 1600x900 WebP or JPEG.
+- Brand icon: 512x512 PNG.
+- OG image: 1200x630 PNG for generated profile cards, JPEG for photo-heavy brand OG cards.
 
 Rules:
 
 - Public profile responses should prefer variants, not originals.
 - Originals are for regeneration and audit, not normal page rendering.
 - If a variant is missing, return the best available fallback and queue regeneration later.
+- Every variant served to browsers must be decoded, resized, stripped, and encoded by Sharp.
+- Store width, height, byte size, and checksum from the final optimized output, not from the original upload.
+- Use deterministic variant names and object keys so regeneration is idempotent.
 
 ### AnalyticsEvent
 
@@ -823,6 +853,18 @@ backend/
     src/main/java/com/linkarooie/observability/
   linkarooie-web-contracts/
     src/main/java/com/linkarooie/contracts/
+media-worker/
+  package.json
+  src/
+    worker.ts
+    renderers/
+      profile-og.tsx
+      main-og.tsx
+    image/
+      optimize.ts
+frontend/
+  package.json
+  src/
 ```
 
 Simpler alternative:
@@ -917,6 +959,25 @@ Contains:
 - MDC helpers.
 - Common metric names.
 - Audit logging helpers.
+
+#### `linkarooie-media-worker`
+
+Contains:
+
+- Kafka consumer for `linkarooie.media.events.v1`.
+- Puppeteer launch and page lifecycle management.
+- React/Tailwind OG templates rendered inside headless Chromium.
+- Sharp-based image optimization, metadata stripping, resizing, encoding, and dimension inspection.
+- S3/RustFS upload client for generated images.
+- Idempotency and retry handling for `PROFILE_OG_IMAGE_STALE` events.
+
+Rules:
+
+- Keep this worker in Node.js because the required rendering path is HTML/CSS/Tailwind to a browser screenshot.
+- Do not put Puppeteer inside the Spring Boot API container.
+- Do not put image-processing binaries or native dependencies inside the Spring Boot API container unless the API later takes over synchronous variant generation.
+- Keep Java as the owner of profile state, auth, metadata, and public APIs.
+- The worker should call internal API endpoints for profile reads and generated-media completion unless the lab deliberately chooses a shared persistence module for simplicity.
 
 ### Package Style
 
@@ -1323,9 +1384,80 @@ Public media read:
 Behavior:
 
 - Validates the media belongs to a public profile or public brand asset.
-- Redirects to a short-lived signed RustFS/S3 URL or streams the object.
-- Adds cache headers.
+- Redirects to a signed RustFS/S3 URL or streams through the API with cache headers.
 - Does not expose RustFS credentials.
+
+Internal generated media completion:
+
+`POST /api/internal/media/generated`
+
+Used by:
+
+- `linkarooie-media-worker`
+
+Request:
+
+```json
+{
+  "eventId": "...",
+  "profileId": "...",
+  "profileVersion": 42,
+  "purpose": "OG_IMAGE",
+  "variant": "OG_IMAGE",
+  "bucket": "linkarooie-media-local",
+  "objectKey": "profiles/.../og/.../og.png",
+  "contentType": "image/png",
+  "byteSize": 123456,
+  "checksum": "sha256:...",
+  "width": 1200,
+  "height": 630
+}
+```
+
+Behavior:
+
+- Authenticated with an internal service token.
+- Creates or reuses the generated `MediaAsset` and `MediaVariant`.
+- Updates `profiles.og_media_id` only if the submitted `profileVersion` still matches the current profile version.
+- Invalidates public profile cache.
+- Publishes `OG_IMAGE_GENERATED` or returns an idempotent success if the event was already recorded.
+
+Internal media variant completion:
+
+`POST /api/internal/media/{mediaId}/variants`
+
+Used by:
+
+- `linkarooie-media-worker`
+
+Request:
+
+```json
+{
+  "eventId": "...",
+  "mediaId": "...",
+  "variants": [
+    {
+      "variant": "AVATAR_LG",
+      "bucket": "linkarooie-media-local",
+      "objectKey": "profiles/.../avatar/.../avatar-lg.webp",
+      "contentType": "image/webp",
+      "byteSize": 45678,
+      "checksum": "sha256:...",
+      "width": 512,
+      "height": 512
+    }
+  ]
+}
+```
+
+Behavior:
+
+- Authenticated with an internal service token.
+- Creates or reuses `MediaVariant` rows for optimized outputs.
+- Marks the source `MediaAsset` as `READY` only after all required variants for its purpose exist.
+- Invalidates affected public profile or brand cache entries.
+- Publishes `MEDIA_VARIANTS_READY` or returns an idempotent success if the event was already recorded.
 
 Owner media read:
 
@@ -1400,6 +1532,8 @@ App-wide public analytics:
 
 ## 10. Kafka Event Schema
 
+### Analytics Events
+
 Topic: `linkarooie.analytics.events.v1`
 
 Event envelope:
@@ -1444,6 +1578,124 @@ Idempotency:
 
 - Worker stores `eventId` in `analytics_events`.
 - Duplicate event ID is ignored.
+
+### Media Events
+
+Topic: `linkarooie.media.events.v1`
+
+Media variants requested event:
+
+```json
+{
+  "eventId": "018f0d8c-...",
+  "eventType": "MEDIA_VARIANTS_REQUESTED",
+  "schemaVersion": 1,
+  "occurredAt": "2026-05-10T03:00:00Z",
+  "receivedAt": "2026-05-10T03:00:01Z",
+  "requestId": "req_...",
+  "mediaId": "...",
+  "profileId": "...",
+  "purpose": "AVATAR",
+  "source": {
+    "bucket": "linkarooie-media-local",
+    "objectKey": "profiles/.../avatar/.../original.jpg",
+    "contentType": "image/jpeg"
+  },
+  "requiredVariants": ["AVATAR_SM", "AVATAR_MD", "AVATAR_LG"]
+}
+```
+
+Profile OG stale event:
+
+```json
+{
+  "eventId": "018f0d8d-...",
+  "eventType": "PROFILE_OG_IMAGE_STALE",
+  "schemaVersion": 1,
+  "occurredAt": "2026-05-10T03:00:00Z",
+  "receivedAt": "2026-05-10T03:00:01Z",
+  "requestId": "req_...",
+  "profileId": "...",
+  "profileUsername": "loftwah",
+  "profileVersion": 42,
+  "reason": "PROFILE_UPDATED",
+  "theme": "dark",
+  "metadata": {
+    "changedFields": ["displayName", "bio", "tags"]
+  }
+}
+```
+
+Generated event:
+
+```json
+{
+  "eventId": "018f0d8e-...",
+  "eventType": "OG_IMAGE_GENERATED",
+  "schemaVersion": 1,
+  "occurredAt": "2026-05-10T03:00:08Z",
+  "requestId": "req_...",
+  "profileId": "...",
+  "profileUsername": "loftwah",
+  "profileVersion": 42,
+  "mediaId": "...",
+  "variant": "OG_IMAGE",
+  "bucket": "linkarooie-media-local",
+  "objectKey": "profiles/.../og/.../og.png",
+  "width": 1200,
+  "height": 630,
+  "contentType": "image/png"
+}
+```
+
+Media variants ready event:
+
+```json
+{
+  "eventId": "018f0d8f-...",
+  "eventType": "MEDIA_VARIANTS_READY",
+  "schemaVersion": 1,
+  "occurredAt": "2026-05-10T03:00:05Z",
+  "requestId": "req_...",
+  "mediaId": "...",
+  "profileId": "...",
+  "variants": [
+    {
+      "variant": "AVATAR_LG",
+      "bucket": "linkarooie-media-local",
+      "objectKey": "profiles/.../avatar/.../avatar-lg.webp",
+      "width": 512,
+      "height": 512,
+      "contentType": "image/webp",
+      "byteSize": 45678
+    }
+  ]
+}
+```
+
+Partition key:
+
+- `profileId`
+- Use `mediaId` if an event has no profile, such as site-wide brand media.
+
+Consumer group:
+
+- `linkarooie-media-worker`
+
+Producer rules:
+
+- `linkarooie-api` emits `PROFILE_OG_IMAGE_STALE` after the database transaction commits.
+- `linkarooie-api` emits `MEDIA_VARIANTS_REQUESTED` after original media validation succeeds.
+- If this event becomes critical for correctness, publish through the outbox table instead of directly to Kafka.
+- For V1.1, direct publish is acceptable because a missed generated OG image can be regenerated by an admin action or scheduled repair job.
+
+Consumer rules:
+
+- The worker loads the current profile snapshot from the API before rendering.
+- If the loaded profile version is newer than the event version, skip the event.
+- If the loaded profile version is older than the event version, retry with backoff because the read model is not ready.
+- Record generated-media completion idempotently by `profileId`, `profileVersion`, `theme`, and `variant`.
+- Record media-variant completion idempotently by `mediaId` and `variant`.
 
 ## 11. Redis Strategy
 
@@ -1844,7 +2096,8 @@ For this lab stage, k3d should contain:
 - `linkarooie-api`
 - `linkarooie-analytics-worker`
 - `linkarooie-web`
-- Later: application jobs such as migrations, image generation, or maintenance tasks.
+- `linkarooie-media-worker` once generated OG images are enabled.
+- Later: application jobs such as migrations or maintenance tasks.
 
 For this lab stage, k3d should not contain:
 
@@ -2329,11 +2582,23 @@ For V1, keep this as a modular monolith plus worker. The extraction path should 
 ### Milestone 9: Containers And k3d
 
 - Dockerfile for API.
-- Dockerfile for worker.
+- Dockerfile for analytics worker.
 - Dockerfile for frontend.
 - Push to GHCR.
 - Kubernetes namespace, deployments, services, config, secrets.
 - Verify app can run in k3d while using Docker Compose supporting services.
+
+### Milestone 10: Generated OG Media Worker
+
+- Add `linkarooie.media.events.v1`.
+- Publish `PROFILE_OG_IMAGE_STALE` from the API after relevant profile/media changes.
+- Add Node.js `linkarooie-media-worker`.
+- Render profile OG images with Puppeteer and Tailwind.
+- Optimize generated images and media variants with Sharp.
+- Generate required avatar, banner, hero, brand, and OG display sizes through the media worker.
+- Upload generated images to RustFS/S3.
+- Record generated media through `POST /api/internal/media/generated`.
+- Add Dockerfile and k3d deployment for the media worker.
 
 ## 22. Coding Standards
 
@@ -2390,7 +2655,7 @@ These can be decided during implementation:
 - Should public analytics be enabled by default or opt-in?
 - Should the hidden unlock code be global per profile or per hidden item?
 - Should owner analytics include referrer domains in V1?
-- Should Open Graph images be uploaded manually first and generated later?
+- Which milestone should turn on generated Open Graph images in the running lab?
 - Should custom domains be a future feature?
 
 ## 24. Recommended V1 Answer To Open Questions
@@ -2401,7 +2666,7 @@ These can be decided during implementation:
 - Public media is returned as stable application URLs that redirect to short-lived signed RustFS/S3 URLs.
 - Hidden unlock code is one profile-level code.
 - Owner analytics includes normalized referrer domains, not full referrer URLs.
-- OG image starts as uploaded media; generation becomes a Kafka-backed job later.
+- OG image starts as uploaded/imported media. Generation becomes the Kafka-backed `linkarooie-media-worker` in Milestone 10.
 - Custom domains are future scope.
 
 ## 25. Definition Of Done For V1
@@ -2604,6 +2869,9 @@ seed-assets/linkarooie/
     loftwah_avatar.jpg
     loftwah_banner.jpg
     loftwah_og.jpg
+    default_avatar.png
+    default_banner.jpg
+    site_og.jpg
   favicons/
     favicon.ico
     favicon-16x16.png
@@ -2618,6 +2886,56 @@ seed-assets/linkarooie/
     Inter-Regular.woff2
     Inter-Bold.woff2
 ```
+
+Recommended frontend static location:
+
+```text
+frontend/public/
+  favicon.ico
+  favicon-16x16.png
+  favicon-32x32.png
+  apple-touch-icon.png
+  android-chrome-192x192.png
+  android-chrome-512x512.png
+  site.webmanifest
+  og/
+    site-default.jpg
+  fonts/
+    Inter-Regular.woff2
+    Inter-Bold.woff2
+```
+
+Canonical asset inventory:
+
+| Asset                      | Purpose                                                        |                      Recommended dimensions | Format                                         | Storage                                                                         |
+| -------------------------- | -------------------------------------------------------------- | ------------------------------------------: | ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| Favicon ICO                | Browser fallback favicon                                       |                             16x16 and 32x32 | ICO                                            | `frontend/public/favicon.ico`                                                   |
+| Small favicons             | Browser tab icons                                              |                                16x16, 32x32 | PNG                                            | `frontend/public/`                                                              |
+| Apple touch icon           | iOS home screen icon                                           |                                     180x180 | PNG                                            | `frontend/public/apple-touch-icon.png`                                          |
+| Android icons              | PWA/install icons                                              |                            192x192, 512x512 | PNG                                            | `frontend/public/`                                                              |
+| Site manifest              | PWA metadata                                                   |                                         n/a | JSON                                           | `frontend/public/site.webmanifest`                                              |
+| App icon/source logo       | Brand icon source                                              |        1024x1024 preferred, 512x512 minimum | PNG                                            | `seed-assets/linkarooie/images/icon.png`, imported as `BRAND`                   |
+| Site-wide OG image         | Default image for home, directory, auth, and fallback metadata |                                    1200x630 | JPEG                                           | `frontend/public/og/site-default.jpg` and/or RustFS `brand/og/site-default.jpg` |
+| Main dark OG image         | Dark-themed brand share card                                   |                                    1200x630 | JPEG                                           | RustFS `brand/og/linkarooie_og_dark.jpg`                                        |
+| Main light OG image        | Light-themed brand share card                                  |                                    1200x630 | JPEG                                           | RustFS `brand/og/linkarooie_og_light.jpg`                                       |
+| Home hero image            | Product/homepage visual                                        |                        1600x900 or 1200x900 | JPEG or PNG                                    | RustFS `brand/hero.*` or frontend static if immutable                           |
+| Default avatar             | Fallback for profiles without uploads                          |                                     512x512 | PNG or WebP                                    | RustFS `brand/defaults/default_avatar.*`                                        |
+| Default banner             | Fallback for profiles without uploads                          | 1500x500 source, variants generated from it | JPEG                                           | RustFS `brand/defaults/default_banner.jpg`                                      |
+| Profile avatar original    | User-uploaded source                                           |   1024x1024 maximum stored after validation | JPEG, PNG, or WebP input                       | RustFS `profiles/{profileId}/avatar/{mediaId}/original.{ext}`                   |
+| Profile banner original    | User-uploaded source                                           |    2400x800 maximum stored after validation | JPEG, PNG, or WebP input                       | RustFS `profiles/{profileId}/banner/{mediaId}/original.{ext}`                   |
+| Generated profile OG image | User profile share card                                        |                                    1200x630 | PNG by default, JPEG acceptable if photo-heavy | RustFS `profiles/{profileId}/og/{mediaId}/og.png`                               |
+
+Asset rules:
+
+- Prefer JPEG for photographic banners, hero images, and site-wide OG images.
+- Prefer PNG or WebP for app icons, default avatars, and generated graphics that need crisp text.
+- Do not use SVG for user-uploaded media in V1.
+- SVG is acceptable only for trusted, static build-time assets. The old `background.svg` can be retained as a trusted seed asset, but the new UI should not depend on SVG for icons.
+- Use Font Awesome for UI and profile item icons rather than storing icon SVGs in the media system.
+- Keep generated OG images at exactly 1200x630 because social platforms expect a 1.91:1 card.
+- Store source images large enough to regenerate variants, but serve public pages from variants only.
+- Strip EXIF and other image metadata from uploaded and generated public media.
+- Keep `frontend/public` for immutable browser assets and first-load metadata. Use RustFS/S3 for profile media, generated OG images, and brand assets that the backend references by media ID.
 
 Asset pack export command from the old repo:
 
@@ -2705,16 +3023,19 @@ linkarooie-media-local
 
 Upload profile media objects:
 
-| Logical asset           | Source asset                                            | RustFS object key                            | DB `purpose` | Content type    |
-| ----------------------- | ------------------------------------------------------- | -------------------------------------------- | ------------ | --------------- |
-| Loftwah avatar          | `seed-assets/linkarooie/images/loftwah_avatar.jpg`      | `profiles/loftwah/avatar/loftwah_avatar.jpg` | `AVATAR`     | `image/jpeg`    |
-| Loftwah banner          | `seed-assets/linkarooie/images/loftwah_banner.jpg`      | `profiles/loftwah/banner/loftwah_banner.jpg` | `BANNER`     | `image/jpeg`    |
-| Loftwah OG image        | `seed-assets/linkarooie/images/loftwah_og.jpg`          | `profiles/loftwah/og/loftwah_og.png`         | `OG_IMAGE`   | `image/png`     |
-| App icon                | `seed-assets/linkarooie/images/icon.png`                | `brand/icon.png`                             | `BRAND`      | `image/png`     |
-| Home hero               | `seed-assets/linkarooie/images/hero.png`                | `brand/hero.png`                             | `BRAND`      | `image/png`     |
-| Home background pattern | `seed-assets/linkarooie/images/background.svg`          | `brand/background.svg`                       | `BRAND`      | `image/svg+xml` |
-| Main dark OG            | `seed-assets/linkarooie/images/linkarooie_og.jpg`       | `brand/og/linkarooie_og_dark.jpg`            | `BRAND_OG`   | `image/jpeg`    |
-| Main light OG           | `seed-assets/linkarooie/images/linkarooie_og_light.jpg` | `brand/og/linkarooie_og_light.jpg`           | `BRAND_OG`   | `image/jpeg`    |
+| Logical asset           | Source asset                                            | RustFS object key                            | DB `purpose`     | Content type    |
+| ----------------------- | ------------------------------------------------------- | -------------------------------------------- | ---------------- | --------------- |
+| Loftwah avatar          | `seed-assets/linkarooie/images/loftwah_avatar.jpg`      | `profiles/loftwah/avatar/loftwah_avatar.jpg` | `AVATAR`         | `image/jpeg`    |
+| Loftwah banner          | `seed-assets/linkarooie/images/loftwah_banner.jpg`      | `profiles/loftwah/banner/loftwah_banner.jpg` | `BANNER`         | `image/jpeg`    |
+| Loftwah OG image        | `seed-assets/linkarooie/images/loftwah_og.jpg`          | `profiles/loftwah/og/loftwah_og.png`         | `OG_IMAGE`       | `image/png`     |
+| App icon                | `seed-assets/linkarooie/images/icon.png`                | `brand/icon.png`                             | `BRAND`          | `image/png`     |
+| Home hero               | `seed-assets/linkarooie/images/hero.png`                | `brand/hero.png`                             | `HERO`           | `image/png`     |
+| Default avatar          | `seed-assets/linkarooie/images/default_avatar.png`      | `brand/defaults/default_avatar.png`          | `DEFAULT_AVATAR` | `image/png`     |
+| Default banner          | `seed-assets/linkarooie/images/default_banner.jpg`      | `brand/defaults/default_banner.jpg`          | `DEFAULT_BANNER` | `image/jpeg`    |
+| Site-wide default OG    | `seed-assets/linkarooie/images/site_og.jpg`             | `brand/og/site-default.jpg`                  | `BRAND_OG`       | `image/jpeg`    |
+| Home background pattern | `seed-assets/linkarooie/images/background.svg`          | `brand/background.svg`                       | `BRAND`          | `image/svg+xml` |
+| Main dark OG            | `seed-assets/linkarooie/images/linkarooie_og.jpg`       | `brand/og/linkarooie_og_dark.jpg`            | `BRAND_OG`       | `image/jpeg`    |
+| Main light OG           | `seed-assets/linkarooie/images/linkarooie_og_light.jpg` | `brand/og/linkarooie_og_light.jpg`           | `BRAND_OG`       | `image/jpeg`    |
 
 For V1, favicons and fonts can be bundled into the frontend image under `public/` rather than uploaded to RustFS.
 
@@ -3389,7 +3710,78 @@ Required columns:
 
 ## 30. OG Image Generation Requirements
 
-The old project has two OG generation scripts. The rebuild does not need full OG generation in V1, but the spec should preserve the behavior for a later Kafka-backed media job.
+The old project has two OG generation scripts. The rebuild does not need full OG generation in the first CRUD milestone, but the spec should preserve the behavior for a Kafka-backed media job.
+
+### Implementation Decision
+
+Use a Node.js `linkarooie-media-worker` for generated OG images.
+
+Rationale:
+
+- The desired rendering workflow is HTML plus Tailwind rendered in a real browser and screenshotted at a fixed size.
+- Puppeteer is a mature fit for that workflow in Node.js.
+- Sharp is the required post-processing implementation for screenshots and uploaded media because it gives the Node worker a direct API for resize, crop, metadata stripping, final encoding, metadata inspection, and output byte-size control.
+- Java can do adjacent work with Playwright for Java, Selenium, or Java2D, but that makes the Spring Boot API container heavier and less direct for Tailwind/browser rendering.
+- Keep Java/Spring Boot as the owner of product state, auth, validation, persistence, and event publishing. Keep browser rendering isolated in the media worker.
+
+Sharp is not optional. No screenshot, upload, default image, hero image, brand image, or OG image may be served publicly until the media worker has produced the required Sharp-optimized variants.
+
+Recommended worker stack:
+
+- Node.js LTS.
+- TypeScript.
+- Puppeteer with bundled or system Chromium.
+- React server rendering or a small Vite/TSX renderer for OG templates.
+- Tailwind CSS using the same design tokens as `linkarooie-web`.
+- Sharp for all public display derivatives.
+- KafkaJS or another maintained Kafka client.
+- AWS SDK S3 client pointed at RustFS locally and S3 in production.
+
+Worker container requirements:
+
+- Includes Chromium dependencies and fonts used by the OG templates.
+- Includes Sharp native dependencies.
+- Includes Inter regular and bold fonts.
+- Runs without external internet access at render time.
+- Has memory and CPU limits separate from `linkarooie-api`.
+- Exposes health/readiness checks for Kafka, internal API, and RustFS/S3 connectivity.
+
+High-level flow:
+
+1. User changes profile data, avatar, banner, tags, or public display settings.
+2. `linkarooie-api` commits the database transaction.
+3. `linkarooie-api` publishes `PROFILE_OG_IMAGE_STALE` to `linkarooie.media.events.v1`.
+4. `linkarooie-media-worker` consumes the event by `profileId`.
+5. Worker loads the current public profile render payload from an internal API endpoint.
+6. Worker renders HTML/Tailwind at 1200x630 in headless Chromium.
+7. Worker screenshots the page to a temporary PNG.
+8. Worker runs Sharp to strip metadata, normalize the image, enforce 1200x630 output, and encode the final OG asset.
+9. Worker computes checksum and byte size from the final optimized output.
+10. Worker uploads the object to RustFS/S3.
+11. Worker calls `POST /api/internal/media/generated`.
+12. API records the generated `MediaAsset`/`MediaVariant`, updates `profiles.og_media_id` if the profile version still matches, and invalidates public profile cache.
+
+Required optimizer behavior:
+
+- Verify dimensions and final format after processing.
+- Strip metadata for every public display image.
+- Use explicit resize/crop geometry per variant.
+- Use sRGB output for browser/social compatibility.
+- Set quality/compression per format so the app serves appropriately sized images.
+- Fail the job if the final dimensions do not exactly match the target variant.
+
+Example conceptual Sharp flow:
+
+```ts
+await sharp(input)
+  .rotate()
+  .resize(width, height, { fit: "cover", position: "centre" })
+  .toColorspace("srgb")
+  .webp({ quality: 82 })
+  .toFile(output);
+
+const metadata = await sharp(output).metadata();
+```
 
 ### Profile OG Image
 
@@ -3451,11 +3843,12 @@ Layout:
 - Tags: flex wrap, max 16 tags, 20px font, rounded pill.
 - Footer: `linkarooie.com` in accent color.
 
-Future implementation:
+Implementation:
 
-- API publishes `OG_IMAGE_REQUESTED` to Kafka when a profile changes.
+- API publishes `PROFILE_OG_IMAGE_STALE` to Kafka when a relevant profile field changes.
 - Media worker generates the image and uploads it to RustFS/S3.
 - `profiles.og_media_id` is updated when ready.
+- Until generation is enabled, seed or uploaded OG images are valid fallbacks.
 
 ### Main App OG Image
 
@@ -3505,6 +3898,43 @@ Layout:
 - Subtitle: 40px.
 - Description: 28px, centered, max width 800px.
 - URL: 32px bold accent.
+
+### Metadata Fallback Order
+
+Profile page `og:image`:
+
+1. Generated profile OG image for the current profile version.
+2. Uploaded/imported profile OG image.
+3. Site-wide default OG image.
+
+Profile avatar rendering:
+
+1. Profile avatar variant.
+2. Default avatar variant.
+
+Profile banner rendering:
+
+1. Profile banner variant.
+2. Default banner variant.
+
+Application pages:
+
+- Home and directory pages use the site-wide default OG image unless a page-specific OG image exists.
+- Auth and dashboard pages should set conservative noindex metadata and can use the site-wide OG image if shared accidentally.
+- OG URLs must be absolute public URLs, not RustFS internal URLs.
+
+### Regeneration Triggers
+
+Publish `PROFILE_OG_IMAGE_STALE` after these changes:
+
+- Profile display name, username, description, bio, or public visibility changes.
+- Avatar media changes.
+- Banner media changes, if the OG template uses the banner.
+- Public tag names change.
+- Theme or brand tokens used by OG rendering change.
+- Default avatar, default banner, or site-wide brand assets change and the profile depends on those fallbacks.
+
+Do not regenerate on analytics-only events, private dashboard edits that are not visible publicly, or hidden link/achievement changes unless those fields appear in the OG template.
 
 ## 31. Review Pass Decisions
 
