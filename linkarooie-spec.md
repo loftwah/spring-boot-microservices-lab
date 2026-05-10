@@ -1,8 +1,11 @@
 # Linkarooie Spring Boot Microservices Lab Application Spec
 
-Status: draft application specification  
-Target repo: spring-boot-microservices-lab  
-Source product: Linkarooie Astro project  
+Status: draft application specification
+
+Target repo: [spring-boot-microservices-lab](https://github.com/loftwah/spring-boot-microservices-lab)
+
+Source product: [Linkarooie Astro project](https://github.com/loftwah/linkarooie-3)
+
 Primary goal: rebuild Linkarooie as a Java Spring Boot backend plus TanStack React frontend, designed for Kubernetes, GitHub Container Registry, and cloud-like supporting services.
 
 ## 1. Product Summary
