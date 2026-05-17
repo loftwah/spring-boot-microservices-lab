@@ -1,2 +1,94 @@
-.env
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime / temp
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# Java / Gradle
+.gradle/
+build/
+out/
+target/
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
+
+# Gradle wrapper - keep the wrapper jar
+!gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
+
+# Maven
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Node / npm / pnpm / yarn
+node_modules/
+dist/
+coverage/
+.npm/
+.pnpm-store/
+.yarn/*
+!.yarn/releases/
+!.yarn/plugins/
+!.yarn/sdks/
+!.yarn/versions/
+
+# Vite / frontend
+.vite/
+.next/
+.nuxt/
+.svelte-kit/
+astro-dist/
+
+# TypeScript
+*.tsbuildinfo
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# Docker / Compose local overrides
+docker-compose.override.yml
+compose.override.yml
+
+# Local database / storage leftovers
+*.sqlite
+*.sqlite3
+*.db
+
+# Test reports
+test-results/
+reports/
+
+# Spring Boot local config
+application-local.properties
+application-*.local.properties
+application-local.yml
+application-*.local.yml
