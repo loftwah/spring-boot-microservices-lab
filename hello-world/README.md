@@ -134,25 +134,53 @@ src/
 Open this file:
 
 ```text
-src/main/resources/application.properties
+src/main/resources/application.yml
 ```
 
 Replace the contents with:
 
-```properties
-spring.application.name=hello-world
+```yaml
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: ${SPRING_APPLICATION_NAME:hello-world}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/app}
+    username: ${SPRING_DATASOURCE_USERNAME:app}
+    password: ${SPRING_DATASOURCE_PASSWORD:app}
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    open-in-view: false
 
-server.port=8088
+server:
+  port: ${SERVER_PORT:8088}
 
-spring.datasource.url=jdbc:postgresql://localhost:5432/app
-spring.datasource.username=app
-spring.datasource.password=app
-
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.open-in-view=false
-
-management.endpoints.web.exposure.include=health,info
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
 ```
+
+Spring Boot loads `application.yml` automatically. The `${ENV_VAR:default}` values mean the app works with the lab defaults, but any environment variable with the same name overrides the default.
+
+For local development, copy the example environment file:
+
+```bash
+cp .env.example .env
+```
+
+The app imports `.env` automatically through:
+
+```yaml
+spring:
+  config:
+    import: optional:file:.env[.properties]
+```
+
+That uses Spring Boot's built-in configuration loading, so no extra dotenv library is required for this lab. Keep `.env` out of git and commit only `.env.example`.
 
 ---
 
