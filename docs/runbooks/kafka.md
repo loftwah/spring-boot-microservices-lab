@@ -1,6 +1,6 @@
 # Kafka Runbook
 
-Kafka is the lab event streaming platform. Treat it like a local stand-in for MSK.
+Kafka is the lab event streaming platform. Treat it like a local stand-in for MSK or another managed Kafka provider.
 
 ## Connection Details
 
@@ -22,6 +22,24 @@ Compose containers:
 kafka:9093
 ```
 
+## Create Linkarooie Topics
+
+From the repo root:
+
+```bash
+./supporting-services/scripts/create-linkarooie-topics.sh
+```
+
+Topics:
+
+```text
+linkarooie.analytics.events.v1
+linkarooie.media.events.v1
+linkarooie.audit.events.v1
+linkarooie.profile.events.v1
+linkarooie.dead-letter.v1
+```
+
 ## List Topics
 
 ```bash
@@ -30,60 +48,37 @@ docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --list
 ```
 
-## Create Topics
-
-```bash
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic documents-v1-events \
-  --partitions 3 \
-  --replication-factor 1
-```
-
-Repeat for:
-
-```text
-audits-v1-events
-workflows-v1-events
-lab-v1-dead-letter
-```
-
 ## Describe Topic
 
 ```bash
 docker exec kafka /opt/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 \
   --describe \
-  --topic documents-v1-events
+  --topic linkarooie.analytics.events.v1
 ```
 
-## Produce Messages
+## Produce An Analytics Event
 
 ```bash
 docker exec -i kafka /opt/kafka/bin/kafka-console-producer.sh \
   --bootstrap-server localhost:9092 \
-  --topic documents-v1-events
+  --topic linkarooie.analytics.events.v1
 ```
 
-Paste JSON lines:
+Paste one JSON line:
 
 ```json
-{
-  "eventId": "1",
-  "eventType": "document-created",
-  "payload": { "documentId": "doc-1" }
-}
+{"eventId":"00000000-0000-0000-0000-000000000001","eventType":"PROFILE_VIEW","schemaVersion":1,"occurredAt":"2026-05-17T00:00:00Z","receivedAt":"2026-05-17T00:00:01Z","requestId":"req_local_smoke","profileId":"00000000-0000-0000-0000-000000000100","profileUsername":"loftwah","targetType":"PROFILE","targetId":"00000000-0000-0000-0000-000000000100","metadata":{"source":"manual-smoke"}}
 ```
 
 Press `Ctrl-D` to finish.
 
-## Consume Messages
+## Consume Events
 
 ```bash
 docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 \
-  --topic documents-v1-events \
+  --topic linkarooie.analytics.events.v1 \
   --from-beginning \
   --max-messages 5
 ```
@@ -98,63 +93,67 @@ docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
   --list
 ```
 
-Describe a group:
+Describe the analytics worker group:
 
 ```bash
 docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
   --bootstrap-server localhost:9092 \
   --describe \
-  --group audit-service
+  --group linkarooie-analytics-worker
 ```
 
-## What The Microservices Should Use
+Describe the media worker group:
 
-Document Service:
+```bash
+docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server localhost:9092 \
+  --describe \
+  --group linkarooie-media-worker
+```
+
+## What The Application Uses
+
+API:
 
 ```text
-produces -> documents-v1-events
+produces -> linkarooie.analytics.events.v1
+produces -> linkarooie.media.events.v1
 ```
 
-Audit Service:
+Analytics worker:
 
 ```text
-consumes -> documents-v1-events
-produces -> audits-v1-events
+consumes -> linkarooie.analytics.events.v1
 ```
 
-Workflow Service:
+Media worker:
 
 ```text
-consumes -> audits-v1-events
-produces -> workflows-v1-events
+consumes -> linkarooie.media.events.v1
+produces -> linkarooie.media.events.v1
 ```
 
-All services should send failed events to:
+Dead letters:
 
 ```text
-lab-v1-dead-letter
+linkarooie.dead-letter.v1
 ```
 
-## Event Envelope
+## Event Rules
 
-```json
-{
-  "eventId": "uuid",
-  "eventType": "document-created",
-  "version": 1,
-  "occurredAt": "2026-04-22T00:00:00Z",
-  "source": "document-service",
-  "correlationId": "uuid",
-  "payload": {}
-}
-```
+- Events are facts, not commands.
+- Every event has a stable `eventId`.
+- Consumers must be idempotent.
+- Schemas are versioned.
+- Use `profileId` as the partition key when available.
+- Propagate request IDs in event headers and event payloads.
 
 ## Things To Break And Fix
 
 1. Produce invalid JSON and make the consumer send it to the dead-letter topic.
-2. Stop the Audit Service and watch consumer lag grow.
-3. Restart the Audit Service and watch it catch up.
-4. Create a topic with one partition, then compare ordering with three partitions.
+2. Stop the analytics worker and watch consumer lag grow.
+3. Restart the analytics worker and watch it catch up.
+4. Replay the same event ID and verify the worker ignores the duplicate.
 
 ## Know As A DevOps Engineer
 

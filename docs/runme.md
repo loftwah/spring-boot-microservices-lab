@@ -1,42 +1,118 @@
-# My Lab
+# Linkarooie Lab Runbook
 
-Run commands from `spring-boot-microservices-lab`.
+Run commands from `spring-boot-microservices-lab` unless a step says otherwise.
 
-This is the linear path. Start at Step 1 and keep going down.
+This is the linear path for the lab. Start with local services and application processes. Move to k3d only after the local application behaviour works.
 
-## Step 1 - Clean Up Previous Debug Pods
-
-Do this first if you interrupted any `kubectl run` command.
+## Step 1 - Verify The Repo Scaffold
 
 ```bash
-kubectl delete pod \
-  -l app.kubernetes.io/part-of=enterprise-lab-netcheck \
-  --ignore-not-found
-
-kubectl delete pod \
-  netcheck-postgres \
-  netcheck-redis \
-  netcheck-kafka \
-  netcheck-rustfs \
-  netcheck-vault \
-  --ignore-not-found
+./scripts/verify-repo-layout.sh
 ```
 
-Check what is left:
+Read the implementation plan:
 
 ```bash
-kubectl get pods
+open docs/implementation-plan.md
 ```
 
-If Kubernetes is pointing at the wrong cluster:
+## Step 2 - Start Docker Compose Supporting Services
+
+This starts Postgres, Redis, Kafka, RustFS, Vault, and Jenkins.
 
 ```bash
-kubectl config current-context
-k3d kubeconfig merge enterprise-lab --switch-context
-kubectl get nodes
+cd supporting-services
+docker compose up -d
+./verify-supporting-services.sh
+cd ..
 ```
 
-## Step 2 - Start Or Recreate k3d
+If something fails:
+
+```bash
+cd supporting-services
+docker compose ps
+docker compose logs postgres
+docker compose logs redis
+docker compose logs kafka
+docker compose logs rustfs
+docker compose logs vault
+docker compose logs jenkins
+cd ..
+```
+
+## Step 3 - Run The Local Doctor
+
+```bash
+./scripts/doctor.sh
+```
+
+The doctor checks local tooling, repo layout, container health, host ports, and Kafka tooling.
+
+## Step 4 - Prepare Linkarooie Supporting-Service State
+
+```bash
+./supporting-services/scripts/prepare-linkarooie-supporting-services.sh
+```
+
+This creates the Kafka topics and the RustFS bucket the app will use.
+
+Expected topics:
+
+```text
+linkarooie.analytics.events.v1
+linkarooie.media.events.v1
+linkarooie.audit.events.v1
+linkarooie.profile.events.v1
+linkarooie.dead-letter.v1
+```
+
+Only analytics is required for the first worker milestone. The others are created early so local infrastructure is predictable.
+
+## Step 5 - Build The Application Locally First
+
+Follow the stories in order:
+
+```text
+docs/stories/01-api-foundation.md
+docs/stories/02-auth-and-workspaces.md
+docs/stories/03-profiles-and-public-reads.md
+docs/stories/04-profile-content.md
+docs/stories/05-media-uploads.md
+docs/stories/06-analytics-pipeline.md
+docs/stories/07-linkarooie-web-public.md
+docs/stories/08-linkarooie-web-dashboard.md
+```
+
+Expected local application commands once code exists:
+
+```bash
+cd services/linkarooie-api
+./gradlew clean test
+./gradlew bootRun
+```
+
+```bash
+cd services/linkarooie-analytics-worker
+./gradlew clean test
+./gradlew bootRun
+```
+
+```bash
+cd services/linkarooie-web
+bun install
+bun run dev
+```
+
+```bash
+cd services/linkarooie-media-worker
+bun install
+bun run dev
+```
+
+## Step 6 - Start Or Recreate k3d
+
+Do this after the local application works.
 
 If the cluster already exists and you want to keep it:
 
@@ -61,134 +137,9 @@ k3d cluster create enterprise-lab \
 kubectl get nodes
 ```
 
-## Step 3 - Start Docker Compose Services
-
-This starts Postgres, Redis, Kafka, RustFS, Vault, and Jenkins.
-
-```bash
-docker compose up -d
-./verify-supporting-services.sh
-```
-
-If something fails:
-
-```bash
-docker compose ps
-docker compose logs postgres
-docker compose logs redis
-docker compose logs kafka
-docker compose logs rustfs
-docker compose logs vault
-docker compose logs jenkins
-```
-
-Stop services without deleting data:
-
-```bash
-docker compose down
-```
-
-Only wipe data when you intentionally want a clean slate:
-
-```bash
-docker compose down -v
-```
-
-## Step 4 - Create The Kubernetes Namespace
-
-```bash
-kubectl create namespace enterprise-lab --dry-run=client -o yaml | kubectl apply -f -
-kubectl get namespace enterprise-lab
-```
-
-## Step 5 - Create Kafka Topics
-
-Use hyphens in topic names. Kafka can warn about metric-name collisions when topic names use periods or underscores.
-
-```bash
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic documents-v1-events \
-  --partitions 3 \
-  --replication-factor 1
-
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic audits-v1-events \
-  --partitions 3 \
-  --replication-factor 1
-
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic workflows-v1-events \
-  --partitions 3 \
-  --replication-factor 1
-
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --create --if-not-exists \
-  --topic lab-v1-dead-letter \
-  --partitions 3 \
-  --replication-factor 1
-
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --list
-```
-
-If old dotted topics exist, delete them:
-
-```bash
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --delete \
-  --topic audits.v1.events
-
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --delete \
-  --topic documents.v1.events
-
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --delete \
-  --topic workflows.v1.events
-
-docker exec kafka /opt/kafka/bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 \
-  --delete \
-  --topic lab.v1.dead-letter
-```
-
-## Step 6 - Initialise Vault Transit
-
-Set `VAULT_ADDR` explicitly inside the container. Without it, the Vault CLI may try HTTPS on `127.0.0.1:8200`.
-
-```bash
-docker exec \
-  -e VAULT_ADDR=http://127.0.0.1:8200 \
-  -e VAULT_TOKEN=root \
-  vault sh -lc 'vault secrets list | grep -q "^transit/" || vault secrets enable transit'
-
-docker exec \
-  -e VAULT_ADDR=http://127.0.0.1:8200 \
-  -e VAULT_TOKEN=root \
-  vault vault write -f transit/keys/document-content
-
-docker exec \
-  -e VAULT_ADDR=http://127.0.0.1:8200 \
-  -e VAULT_TOKEN=root \
-  vault vault read transit/keys/document-content
-```
-
 ## Step 7 - Verify k3d Pods Can Reach Compose Services
 
-`kubectl run` starts a temporary pod in Kubernetes, similar to `docker run` starting a container in Docker.
-
-These checks use unique pod names so a previous interrupted run does not block the next one.
+These checks use unique pod names so an interrupted run does not block the next one.
 
 ```bash
 kubectl run "netcheck-postgres-$(date +%s)" \
@@ -218,67 +169,52 @@ kubectl run "netcheck-rustfs-$(date +%s)" \
   --labels=app.kubernetes.io/part-of=enterprise-lab-netcheck \
   --image=nicolaka/netshoot \
   -- nc -vz -w 5 host.k3d.internal 9000
-
-kubectl run "netcheck-vault-$(date +%s)" \
-  --rm -i \
-  --restart=Never \
-  --labels=app.kubernetes.io/part-of=enterprise-lab-netcheck \
-  --image=nicolaka/netshoot \
-  -- nc -vz -w 5 host.k3d.internal 8200
 ```
 
-If a netcheck hangs or you interrupt it:
+Clean up interrupted netchecks:
 
 ```bash
-kubectl get pods
-
 kubectl delete pod \
   -l app.kubernetes.io/part-of=enterprise-lab-netcheck \
   --ignore-not-found
-
-kubectl get pod -o wide
 ```
 
-If you need to inspect one stuck pod before deleting it:
+## Step 8 - Containerize And Deploy App Workloads
+
+Follow:
+
+```text
+docs/stories/09-containers-and-k3d.md
+```
+
+At this point:
+
+- Linkarooie app workloads run in k3d.
+- Supporting services still run in Docker Compose.
+- Pods use `host.k3d.internal` to reach the supporting services.
+
+## Step 9 - Add Generated Media Worker
+
+Follow:
+
+```text
+docs/stories/10-linkarooie-media-worker.md
+```
+
+This adds the Node.js media worker, image variants, and generated OG images.
+
+## Stop Or Reset
+
+Stop supporting services without deleting data:
 
 ```bash
-kubectl describe pod <pod-name>
-kubectl logs <pod-name>
+cd supporting-services
+docker compose down
 ```
 
-## Step 8 - Confirm The Runtime Endpoints
+Only wipe data when you intentionally want a clean slate:
 
-From your Mac:
-
-```text
-Postgres: localhost:5432
-Redis:    localhost:6379
-Kafka:    localhost:9092
-RustFS:   http://localhost:9000
-Vault:    http://localhost:8200
-Jenkins:  http://localhost:8080
-```
-
-From k3d pods:
-
-```text
-Postgres: host.k3d.internal:5432
-Redis:    host.k3d.internal:6379
-Kafka:    host.k3d.internal:9094
-RustFS:   http://host.k3d.internal:9000
-Vault:    http://host.k3d.internal:8200
-```
-
-## Step 9 - Next Lab Move
-
-Start with `document-service`.
-
-It should use:
-
-```text
-Postgres: document metadata
-Redis:    document read cache
-Kafka:    publish document events to documents-v1-events
-Vault:    encrypt/decrypt content with transit/keys/document-content
-RustFS:   store encrypted document content
+```bash
+cd supporting-services
+docker compose down -v
 ```

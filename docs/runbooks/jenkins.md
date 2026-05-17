@@ -26,11 +26,12 @@ docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 
 ## Recommended Jobs
 
-| Job                | Jenkinsfile                             |
-| ------------------ | --------------------------------------- |
-| `document-service` | `services/document-service/Jenkinsfile` |
-| `audit-service`    | `services/audit-service/Jenkinsfile`    |
-| `workflow-service` | `services/workflow-service/Jenkinsfile` |
+| Job | Jenkinsfile |
+| --- | --- |
+| `linkarooie-api` | `services/linkarooie-api/Jenkinsfile` |
+| `linkarooie-analytics-worker` | `services/linkarooie-analytics-worker/Jenkinsfile` |
+| `linkarooie-web` | `services/linkarooie-web/Jenkinsfile` |
+| `linkarooie-media-worker` | `services/linkarooie-media-worker/Jenkinsfile` |
 
 ## First Pipeline Shape
 
@@ -47,7 +48,7 @@ pipeline {
 
     stage('Test') {
       steps {
-        dir('services/document-service') {
+        dir('services/linkarooie-api') {
           sh './gradlew test'
         }
       }
@@ -55,7 +56,7 @@ pipeline {
 
     stage('Build Jar') {
       steps {
-        dir('services/document-service') {
+        dir('services/linkarooie-api') {
           sh './gradlew bootJar'
         }
       }

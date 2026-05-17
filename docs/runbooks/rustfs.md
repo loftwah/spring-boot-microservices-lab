@@ -65,58 +65,74 @@ Default output format: json
 ## Bucket And Object Drill
 
 ```bash
-aws --profile rustfs --endpoint-url http://localhost:9000 s3 mb s3://lab-documents
+aws --profile rustfs --endpoint-url http://localhost:9000 s3 mb s3://linkarooie-media-local
 
 echo "hello rustfs" > /tmp/rustfs-demo.txt
 
 aws --profile rustfs --endpoint-url http://localhost:9000 \
-  s3 cp /tmp/rustfs-demo.txt s3://lab-documents/rustfs-demo.txt
+  s3 mb s3://linkarooie-media-local
 
 aws --profile rustfs --endpoint-url http://localhost:9000 \
-  s3 ls s3://lab-documents/
+  s3 cp /tmp/rustfs-demo.txt s3://linkarooie-media-local/rustfs-demo.txt
 
 aws --profile rustfs --endpoint-url http://localhost:9000 \
-  s3 cp s3://lab-documents/rustfs-demo.txt -
+  s3 ls s3://linkarooie-media-local/
 
 aws --profile rustfs --endpoint-url http://localhost:9000 \
-  s3 rm s3://lab-documents/rustfs-demo.txt
+  s3 cp s3://linkarooie-media-local/rustfs-demo.txt -
+
+aws --profile rustfs --endpoint-url http://localhost:9000 \
+  s3 rm s3://linkarooie-media-local/rustfs-demo.txt
 ```
 
-## What The Microservices Should Use
+## What Linkarooie Should Use
 
-Document Service should:
+`linkarooie-api` should:
 
-1. Receive plaintext content.
-2. Encrypt content through Vault Transit.
-3. Store encrypted bytes in RustFS.
+1. Receive avatar and banner uploads.
+2. Validate file size, content type, and decoded image dimensions.
+3. Store original media objects privately in RustFS.
 4. Store object key and metadata in Postgres.
-5. Publish a Kafka event.
+5. Publish media events when variants or generated OG images are needed.
+
+`linkarooie-media-worker` should:
+
+1. Read original media objects.
+2. Generate web-safe variants with Sharp.
+3. Upload generated variants and OG images.
+4. Call the API completion endpoints.
 
 Object key pattern:
 
 ```text
-documents/{documentId}/content.bin
+profiles/{profileId}/{purpose}/{mediaId}/original.{ext}
+profiles/{profileId}/{purpose}/{mediaId}/{variant}.{ext}
+profiles/{profileId}/og/{mediaId}/og.jpg
 ```
 
 Metadata to store in Postgres:
 
 ```text
-document_id
+media_id
+profile_id
 bucket
 object_key
 content_type
 size_bytes
 checksum
-encryption_key_name
+width
+height
+purpose
+status
 created_at
 ```
 
 ## Things To Break And Fix
 
 1. Upload an object with the wrong bucket name and inspect the error.
-2. Delete an object and confirm the Document Service handles missing content.
+2. Delete an object and confirm Linkarooie returns a clear media error or fallback.
 3. Change credentials and confirm the app fails readiness or emits clear errors.
-4. Store plaintext once, then replace the flow so only ciphertext is stored.
+4. Upload an unoptimized original and confirm the media worker writes optimized variants.
 
 ## Know As A DevOps Engineer
 

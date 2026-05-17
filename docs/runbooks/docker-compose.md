@@ -18,15 +18,19 @@ Jenkins is deliberately here, not in k3d. Treat it as a centralized CI/CD contro
 From the repo root:
 
 ```bash
+cd supporting-services
 docker compose up -d
 docker compose ps
 ./verify-supporting-services.sh
+cd ..
 ```
 
 ## Stop Without Losing Data
 
 ```bash
+cd supporting-services
 docker compose down
+cd ..
 ```
 
 ## Clean Slate
@@ -34,12 +38,15 @@ docker compose down
 Use this only when you intentionally want to reset all local data:
 
 ```bash
+cd supporting-services
 docker compose down -v
+cd ..
 ```
 
 ## Inspect Services
 
 ```bash
+cd supporting-services
 docker compose ps
 docker compose logs postgres
 docker compose logs redis
@@ -47,11 +54,13 @@ docker compose logs kafka
 docker compose logs rustfs
 docker compose logs vault
 docker compose logs jenkins
+cd ..
 ```
 
 Follow logs:
 
 ```bash
+cd supporting-services
 docker compose logs -f kafka
 ```
 
@@ -74,13 +83,17 @@ docker volume inspect enterprise-lab_postgres_data
 - Recreate one service after config changes:
 
 ```bash
+cd supporting-services
 docker compose up -d --force-recreate vault
+cd ..
 ```
 
 - Restart one service:
 
 ```bash
+cd supporting-services
 docker compose restart kafka
+cd ..
 ```
 
 ## Things To Break And Fix
@@ -88,9 +101,11 @@ docker compose restart kafka
 1. Stop Redis and watch the verifier fail:
 
 ```bash
+cd supporting-services
 docker compose stop redis
 ./verify-supporting-services.sh
 docker compose start redis
+cd ..
 ```
 
 2. Restart Kafka and list topics again.

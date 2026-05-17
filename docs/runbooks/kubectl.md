@@ -35,29 +35,29 @@ kubectl get events -n enterprise-lab --sort-by=.lastTimestamp
 
 ```bash
 kubectl describe pod POD_NAME -n enterprise-lab
-kubectl describe deployment document-service -n enterprise-lab
+kubectl describe deployment linkarooie-api -n enterprise-lab
 kubectl describe ingress -n enterprise-lab
 ```
 
 ## Logs
 
 ```bash
-kubectl logs deployment/document-service -n enterprise-lab
-kubectl logs deployment/document-service -n enterprise-lab -f
-kubectl logs deployment/document-service -n enterprise-lab --previous
+kubectl logs deployment/linkarooie-api -n enterprise-lab
+kubectl logs deployment/linkarooie-api -n enterprise-lab -f
+kubectl logs deployment/linkarooie-api -n enterprise-lab --previous
 ```
 
 ## Exec
 
 ```bash
-kubectl exec -it deployment/document-service -n enterprise-lab -- sh
+kubectl exec -it deployment/linkarooie-api -n enterprise-lab -- sh
 ```
 
 ## Port Forward
 
 ```bash
-kubectl port-forward -n enterprise-lab svc/document-service 8083:80
-curl http://localhost:8083/actuator/health
+kubectl port-forward -n enterprise-lab svc/linkarooie-api 8080:80
+curl http://localhost:8080/api/health
 ```
 
 ## Apply And Delete
@@ -70,9 +70,9 @@ kubectl delete -f deploy/k8s/namespace.yaml
 ## Rollouts
 
 ```bash
-kubectl rollout status deployment/document-service -n enterprise-lab
-kubectl rollout history deployment/document-service -n enterprise-lab
-kubectl rollout undo deployment/document-service -n enterprise-lab
+kubectl rollout status deployment/linkarooie-api -n enterprise-lab
+kubectl rollout history deployment/linkarooie-api -n enterprise-lab
+kubectl rollout undo deployment/linkarooie-api -n enterprise-lab
 ```
 
 ## Debug Pod
@@ -88,7 +88,7 @@ kubectl run netshoot \
 Inside:
 
 ```bash
-curl -v http://document-service.enterprise-lab.svc.cluster.local/actuator/health
+curl -v http://linkarooie-api.enterprise-lab.svc.cluster.local/api/health
 nc -vz host.k3d.internal 9094
 ```
 
@@ -100,8 +100,8 @@ nc -vz host.k3d.internal 9094
 4. Scale a deployment to zero and back up.
 
 ```bash
-kubectl scale deployment document-service -n enterprise-lab --replicas=0
-kubectl scale deployment document-service -n enterprise-lab --replicas=1
+kubectl scale deployment linkarooie-api -n enterprise-lab --replicas=0
+kubectl scale deployment linkarooie-api -n enterprise-lab --replicas=1
 ```
 
 ## Know As A DevOps Engineer

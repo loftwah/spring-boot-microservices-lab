@@ -52,22 +52,22 @@ Enable Transit:
 docker exec vault vault secrets enable transit
 ```
 
-Create an encryption key:
+Create an encryption key for a later lab drill:
 
 ```bash
-docker exec vault vault write -f transit/keys/document-content
+docker exec vault vault write -f transit/keys/linkarooie-lab
 ```
 
 Encrypt:
 
 ```bash
-docker exec vault sh -lc 'vault write transit/encrypt/document-content plaintext=$(printf "hello vault" | base64)'
+docker exec vault sh -lc 'vault write transit/encrypt/linkarooie-lab plaintext=$(printf "hello vault" | base64)'
 ```
 
 Decrypt a ciphertext:
 
 ```bash
-docker exec vault vault write transit/decrypt/document-content ciphertext='vault:v1:...'
+docker exec vault vault write transit/decrypt/linkarooie-lab ciphertext='vault:v1:...'
 ```
 
 Decode the plaintext:
@@ -81,16 +81,16 @@ printf 'base64-value' | base64 --decode
 Create a narrow policy:
 
 ```bash
-docker exec -i vault sh -lc 'cat > /tmp/document-policy.hcl && vault policy write document-service /tmp/document-policy.hcl' <<'HCL'
-path "transit/encrypt/document-content" {
+docker exec -i vault sh -lc 'cat > /tmp/linkarooie-policy.hcl && vault policy write linkarooie-api /tmp/linkarooie-policy.hcl' <<'HCL'
+path "transit/encrypt/linkarooie-lab" {
   capabilities = ["update"]
 }
 
-path "transit/decrypt/document-content" {
+path "transit/decrypt/linkarooie-lab" {
   capabilities = ["update"]
 }
 
-path "secret/data/document-service/*" {
+path "secret/data/linkarooie-api/*" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
 HCL
@@ -99,23 +99,21 @@ HCL
 Create a token for that policy:
 
 ```bash
-docker exec vault vault token create -policy=document-service
+docker exec vault vault token create -policy=linkarooie-api
 ```
 
-## What The Microservices Should Use
+## Linkarooie V1 Decision
 
-Document Service:
+Vault is present as a platform lab dependency, but Linkarooie V1 explicitly excludes Vault integration.
 
-- Transit encrypt before writing to RustFS.
-- Transit decrypt after reading from RustFS.
-- Optional KV config for service-specific settings.
+Use this runbook to practise Vault separately. Do not block the Linkarooie API, analytics worker, web service, or media worker on Vault.
 
 Do not store the encryption key in the app. The app asks Vault to encrypt/decrypt.
 
 ## Things To Break And Fix
 
 1. Use a token without decrypt permission and inspect the error.
-2. Disable Transit and watch the Document Service fail clearly.
+2. Disable Transit and watch a small test client fail clearly.
 3. Rotate the Transit key and verify old ciphertext can still decrypt.
 4. Restart Vault dev mode and understand what data disappears.
 

@@ -46,15 +46,15 @@ k3d cluster delete enterprise-lab
 If Jenkins or your shell builds an image locally:
 
 ```bash
-docker build -t document-service:local services/document-service
-k3d image import document-service:local -c enterprise-lab
+docker build -t linkarooie-api:local -f services/linkarooie-api/Dockerfile .
+k3d image import linkarooie-api:local -c enterprise-lab
 ```
 
 Then use this image in Kubernetes:
 
 ```yaml
 image:
-  repository: document-service
+  repository: linkarooie-api
   tag: local
   pullPolicy: IfNotPresent
 ```
@@ -70,9 +70,9 @@ http://localhost:8888
 Planned app routes:
 
 ```text
-http://localhost:8888/documents
-http://localhost:8888/audits
-http://localhost:8888/workflows
+http://localhost:8888/
+http://localhost:8888/api/health
+http://localhost:8888/directory
 ```
 
 ## Reach Host Services From Pods

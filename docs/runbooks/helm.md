@@ -29,7 +29,7 @@ helm list -n enterprise-lab
 
 ```bash
 mkdir -p deploy/helm
-helm create deploy/helm/document-service
+helm create deploy/helm/linkarooie-api
 ```
 
 Then remove templates you do not need and keep the chart small.
@@ -37,39 +37,39 @@ Then remove templates you do not need and keep the chart small.
 ## Render Locally
 
 ```bash
-helm template document-service deploy/helm/document-service \
+helm template linkarooie-api deploy/helm/linkarooie-api \
   --namespace enterprise-lab \
-  --values deploy/helm/document-service/values.yaml
+  --values deploy/helm/linkarooie-api/values.yaml
 ```
 
 ## Install Or Upgrade
 
 ```bash
-helm upgrade --install document-service deploy/helm/document-service \
+helm upgrade --install linkarooie-api deploy/helm/linkarooie-api \
   --namespace enterprise-lab \
   --create-namespace \
-  --values deploy/helm/document-service/values.yaml
+  --values deploy/helm/linkarooie-api/values.yaml
 ```
 
 ## Inspect A Release
 
 ```bash
-helm status document-service -n enterprise-lab
-helm get values document-service -n enterprise-lab
-helm get manifest document-service -n enterprise-lab
-helm history document-service -n enterprise-lab
+helm status linkarooie-api -n enterprise-lab
+helm get values linkarooie-api -n enterprise-lab
+helm get manifest linkarooie-api -n enterprise-lab
+helm history linkarooie-api -n enterprise-lab
 ```
 
 ## Rollback
 
 ```bash
-helm rollback document-service 1 -n enterprise-lab
+helm rollback linkarooie-api 1 -n enterprise-lab
 ```
 
 ## Uninstall
 
 ```bash
-helm uninstall document-service -n enterprise-lab
+helm uninstall linkarooie-api -n enterprise-lab
 ```
 
 ## What The Microservice Charts Should Include

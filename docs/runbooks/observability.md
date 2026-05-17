@@ -137,7 +137,7 @@ In Grafana Explore, select Loki and query:
 For one service:
 
 ```logql
-{namespace="enterprise-lab", app="document-service"}
+{namespace="enterprise-lab", app="linkarooie-api"}
 ```
 
 ## First Alerts
@@ -159,9 +159,10 @@ PostgresConnectionFailures
 ```text
 Platform
 Kubernetes
-Document Service
-Audit Service
-Workflow Service
+Linkarooie API
+Linkarooie Analytics Worker
+Linkarooie Web
+Linkarooie Media Worker
 Kafka
 Backing Services
 ```
