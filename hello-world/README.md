@@ -15,6 +15,89 @@ The app uses Java 25, Spring Boot 4, Gradle, Spring Web MVC, Spring Data JPA, Be
 
 ---
 
+## Workflow
+
+Use this project in one of two modes:
+
+1. If the app already exists, start at [Run The App](#3-run-the-app).
+2. If you are rebuilding the lab from scratch, start at [Generate The App](#1-generate-the-app), then apply each numbered section in order.
+
+The normal development loop is:
+
+```bash
+cd /Users/deanlofts/gits/labs/spring-boot-microservices-lab/supporting-services
+docker compose up -d postgres
+docker exec postgres pg_isready -U app -d app
+
+cd /Users/deanlofts/gits/labs/spring-boot-microservices-lab/hello-world
+cp .env.example .env
+./gradlew test
+./gradlew bootRun
+```
+
+Keep `./gradlew bootRun` running in one terminal. Use another terminal for `curl` checks against `http://localhost:8088`, and edit Java files while the app is running.
+
+This is not exactly like Rails, TanStack, or Vite. Spring Boot is JVM-based, so Java must compile before changes are visible. With Spring Boot DevTools installed, the workflow is still comfortable: save a Java file, Gradle compiles it, DevTools restarts the Spring application context, then the next request sees the change. It is a fast restart, not true dynamic Ruby-style reloading.
+
+Required local tools:
+
+- Java 25
+- Docker
+- `curl`
+- `jq` for the API examples
+
+Gradle itself is provided by the project wrapper, so use `./gradlew`.
+
+---
+
+## Development Reloading
+
+This project uses Spring Boot DevTools for local development:
+
+```gradle
+developmentOnly 'org.springframework.boot:spring-boot-devtools'
+```
+
+With DevTools, you normally do not write all the code perfectly and then run it. Run the app, make a small change, let it restart, and test the behaviour.
+
+Use this loop:
+
+1. Start Postgres.
+2. Run `./gradlew bootRun`.
+3. Edit a controller, service, DTO, entity, config class, static file, or YAML setting.
+4. Wait for the app to recompile and restart.
+5. Re-run the relevant `curl` command or test.
+
+Usually reloads automatically:
+
+- Controllers
+- Services
+- Repositories and DTOs
+- Validation annotations
+- Spring configuration classes
+- Static assets
+- `application.yml` and `.env` values
+
+Usually stop and restart `./gradlew bootRun` after changing:
+
+- `build.gradle`
+- `settings.gradle`
+- Dependency versions
+- Java toolchain settings
+- Dockerfile or container settings
+
+If a change behaves strangely, stop `bootRun` with `Ctrl+C` and start it again. That is the normal first fix in Spring Boot development.
+
+For a slightly more automatic terminal workflow, you can run:
+
+```bash
+./gradlew bootRun --continuous
+```
+
+Many Java developers instead let IntelliJ compile changed files automatically while DevTools handles the Spring restart.
+
+---
+
 ## Lab Layout
 
 ```text
@@ -84,6 +167,8 @@ app:5432 - accepting connections
 
 # 1. Generate The App
 
+Skip this section if `build.gradle`, `settings.gradle`, `gradlew`, and `src/` already exist. This section is for recreating the Spring Boot starter project.
+
 Start inside this directory:
 
 ```bash
@@ -104,7 +189,7 @@ curl https://start.spring.io/starter.tgz \
   -d name=hello-world \
   -d packageName=xyz.deanlofts.helloworld \
   -d javaVersion=25 \
-  -d dependencies=web,data-jpa,postgresql,validation,actuator \
+  -d dependencies=web,data-jpa,postgresql,validation,actuator,devtools \
   | tar -xz -C "$tmpdir"
 ```
 
@@ -127,11 +212,19 @@ gradle/
 src/
 ```
 
+Spring Initializr may create `src/main/resources/application.properties`. This lab uses YAML instead, so replace that file with `src/main/resources/application.yml` in the next section.
+
 ---
 
 # 2. Configure The App
 
-Open this file:
+Delete the generated properties file if it exists:
+
+```bash
+rm -f src/main/resources/application.properties
+```
+
+Create this file:
 
 ```text
 src/main/resources/application.yml
@@ -166,6 +259,25 @@ management:
 
 Spring Boot loads `application.yml` automatically. The `${ENV_VAR:default}` values mean the app works with the lab defaults, but any environment variable with the same name overrides the default.
 
+Create this tracked example environment file:
+
+```text
+.env.example
+```
+
+Use this content:
+
+```properties
+SPRING_APPLICATION_NAME=hello-world
+SERVER_PORT=8088
+
+SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/app
+SPRING_DATASOURCE_USERNAME=app
+SPRING_DATASOURCE_PASSWORD=app
+
+SPRING_JPA_HIBERNATE_DDL_AUTO=update
+```
+
 For local development, copy the example environment file:
 
 ```bash
@@ -180,7 +292,21 @@ spring:
     import: optional:file:.env[.properties]
 ```
 
-That uses Spring Boot's built-in configuration loading, so no extra dotenv library is required for this lab. Keep `.env` out of git and commit only `.env.example`.
+That uses Spring Boot's built-in configuration loading, so no extra dotenv library is required for this lab.
+
+Add `.env` to `.gitignore`:
+
+```gitignore
+.env
+```
+
+Keep `.env` out of git and commit only `.env.example`.
+
+Configuration precedence for this lab is:
+
+1. Real environment variables, such as `SERVER_PORT=8089 ./gradlew bootRun`.
+2. Values in the local `.env` file.
+3. Defaults in `application.yml`.
 
 ---
 
@@ -214,7 +340,7 @@ Stop the app with:
 Ctrl+C
 ```
 
-When later sections add Java files, stop the running `bootRun` process and start it again so Spring Boot loads the new code.
+When later sections add Java files, you can usually leave `bootRun` running. DevTools will restart the application after Gradle recompiles the changed classes. If you change Gradle dependencies or the build file itself, stop and restart `bootRun`.
 
 ---
 
@@ -1362,8 +1488,11 @@ docker exec postgres psql -U app -d app -c 'drop table if exists articles;'
 
 The next `./gradlew bootRun` will recreate the tables because this lab uses:
 
-```properties
-spring.jpa.hibernate.ddl-auto=update
+```yaml
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
 ```
 
 ---
@@ -1386,8 +1515,8 @@ lsof -nP -iTCP:8088 -sTCP:LISTEN
 
 Stop the process using that port, or temporarily change:
 
-```properties
-server.port=8089
+```bash
+SERVER_PORT=8089 ./gradlew bootRun
 ```
 
 If `jq` is missing, install it:
