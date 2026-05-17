@@ -1,30 +1,26 @@
 # Hello World Spring Boot Blog API
 
-This is a Spring Boot REST API version of the classic Rails blog tutorial.
+This lab rebuilds the classic Rails blog tutorial as a Spring Boot REST API.
 
-The goal is to build a tiny blog API with:
+You will build:
 
-- Java 25
-- Spring Boot 4
-- Gradle
-- PostgreSQL
-- Spring Web
-- Spring Data JPA
-- Bean Validation
-- Actuator
-- Docker
-- GHCR
+- A root health-style JSON endpoint
+- Articles with CRUD actions
+- Validation errors
+- Nested comments
+- A Docker image
+- An optional GHCR publish step
 
-This tutorial assumes the supporting services are already running from the root `docker-compose.yml`.
+The app uses Java 25, Spring Boot 4, Gradle, Spring Web MVC, Spring Data JPA, Bean Validation, Actuator, PostgreSQL, and Docker.
 
 ---
 
-## Lab layout
+## Lab Layout
 
 ```text
 spring-boot-microservices-lab/
-  docker-compose.yml
-  .gitignore
+  supporting-services/
+    docker-compose.yml
   hello-world/
     README.md
     build.gradle
@@ -65,25 +61,34 @@ username: app
 password: app
 ```
 
-The supporting Postgres service was created with:
+Start the supporting services before running the API:
 
-```yaml
-POSTGRES_DB: app
-POSTGRES_USER: app
-POSTGRES_PASSWORD: app
+```bash
+cd /Users/deanlofts/gits/labs/spring-boot-microservices-lab/supporting-services
+docker compose up -d postgres
+```
+
+Check Postgres is ready:
+
+```bash
+docker exec postgres pg_isready -U app -d app
+```
+
+Expected:
+
+```text
+app:5432 - accepting connections
 ```
 
 ---
 
-# 1. Generate the app
+# 1. Generate The App
 
 Start inside this directory:
 
 ```bash
 cd /Users/deanlofts/gits/labs/spring-boot-microservices-lab/hello-world
 ```
-
-This directory should already contain this `README.md`.
 
 Generate the Spring Boot app into a temporary directory:
 
@@ -103,7 +108,7 @@ curl https://start.spring.io/starter.tgz \
   | tar -xz -C "$tmpdir"
 ```
 
-Copy the generated app into this directory:
+Copy the generated app into this directory without replacing this README:
 
 ```bash
 rsync -av --exclude README.md "$tmpdir"/ ./
@@ -124,7 +129,7 @@ src/
 
 ---
 
-# 2. Configure the app
+# 2. Configure The App
 
 Open this file:
 
@@ -151,7 +156,7 @@ management.endpoints.web.exposure.include=health,info
 
 ---
 
-# 3. Run the app
+# 3. Run The App
 
 From inside `hello-world/`:
 
@@ -181,31 +186,33 @@ Stop the app with:
 Ctrl+C
 ```
 
+When later sections add Java files, stop the running `bootRun` process and start it again so Spring Boot loads the new code.
+
 ---
 
-# 4. Health check
+# 4. Health Check
+
+Run the app:
+
+```bash
+./gradlew bootRun
+```
 
 In another terminal:
 
 ```bash
-curl -s http://localhost:8088/actuator/health | jq
+curl -s http://localhost:8088/actuator/health
 ```
 
 Expected:
 
 ```json
-{
-  "groups": [
-    "liveness",
-    "readiness"
-  ],
-  "status": "UP"
-}
+{"status":"UP"}
 ```
 
 ---
 
-# 5. Build the app
+# 5. Build The App
 
 From inside `hello-world/`:
 
@@ -221,12 +228,14 @@ BUILD SUCCESSFUL
 
 ---
 
-# 6. Add the first controller
+# 6. Add The First Controller
 
-Create this directory:
+This is the API version of the Rails tutorial's first "Hello" page.
 
-```text
-src/main/java/xyz/deanlofts/helloworld/home
+Create the package directory:
+
+```bash
+mkdir -p src/main/java/xyz/deanlofts/helloworld/home
 ```
 
 Create this file:
@@ -267,21 +276,20 @@ Run the app:
 Test in another terminal:
 
 ```bash
-curl -s http://localhost:8088/ | jq
+curl -s http://localhost:8088/
 ```
 
 Expected shape:
 
 ```json
-{
-  "message": "Hello, Spring Boot blog",
-  "time": "2026-05-17T08:30:00Z"
-}
+{"time":"2026-05-17T08:30:00Z","message":"Hello, Spring Boot blog"}
 ```
+
+The field order can differ. JSON object order does not matter.
 
 ---
 
-# 7. Articles
+# 7. Add Articles
 
 An article has:
 
@@ -293,17 +301,17 @@ createdAt
 updatedAt
 ```
 
-This is the Spring Boot REST equivalent of the first Rails blog model and controller.
+This is the Spring Boot REST equivalent of the Rails tutorial's first blog model and controller.
 
-Create this directory:
+Create the package directory:
 
-```text
-src/main/java/xyz/deanlofts/helloworld/articles
+```bash
+mkdir -p src/main/java/xyz/deanlofts/helloworld/articles
 ```
 
 ---
 
-## 7.1 Article entity
+## 7.1 Article Entity
 
 Create this file:
 
@@ -395,7 +403,7 @@ public class Article {
 
 ---
 
-## 7.2 Article repository
+## 7.2 Article Repository
 
 Create this file:
 
@@ -416,7 +424,7 @@ public interface ArticleRepository extends JpaRepository<Article, Long> {
 
 ---
 
-## 7.3 Article request DTO
+## 7.3 Article Request DTO
 
 Create this file:
 
@@ -445,7 +453,7 @@ public record ArticleRequest(
 
 ---
 
-## 7.4 Article response DTO
+## 7.4 Article Response DTO
 
 Create this file:
 
@@ -481,17 +489,17 @@ public record ArticleResponse(
 
 ---
 
-# 8. API errors
+# 8. Add API Errors
 
-Create this directory:
+Create the package directory:
 
-```text
-src/main/java/xyz/deanlofts/helloworld/common
+```bash
+mkdir -p src/main/java/xyz/deanlofts/helloworld/common
 ```
 
 ---
 
-## 8.1 Not found exception
+## 8.1 Not Found Exception
 
 Create this file:
 
@@ -513,7 +521,7 @@ public class NotFoundException extends RuntimeException {
 
 ---
 
-## 8.2 Global exception handler
+## 8.2 Global Exception Handler
 
 Create this file:
 
@@ -578,7 +586,7 @@ public class ApiExceptionHandler {
 
 ---
 
-# 9. Articles controller
+# 9. Add The Articles Controller
 
 Create this file:
 
@@ -667,9 +675,15 @@ public class ArticleController {
 }
 ```
 
+Build:
+
+```bash
+./gradlew build
+```
+
 ---
 
-# 10. Test articles
+# 10. Test Articles
 
 Run the app:
 
@@ -677,15 +691,17 @@ Run the app:
 ./gradlew bootRun
 ```
 
-In another terminal, create an article:
+In another terminal, create an article and capture its ID:
 
 ```bash
-curl -s -X POST http://localhost:8088/api/articles \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "title": "Hello Spring Boot",
-    "body": "This is the first article in the blog tutorial."
-  }' | jq
+ARTICLE_ID=$(
+  curl -s -X POST http://localhost:8088/api/articles \
+    -H 'Content-Type: application/json' \
+    -d '{"title":"Hello Spring Boot","body":"This is the first article in the blog tutorial."}' \
+  | jq -r '.id'
+)
+
+echo "$ARTICLE_ID"
 ```
 
 List articles:
@@ -697,27 +713,49 @@ curl -s http://localhost:8088/api/articles | jq
 Show one article:
 
 ```bash
-curl -s http://localhost:8088/api/articles/1 | jq
+curl -s "http://localhost:8088/api/articles/$ARTICLE_ID" | jq
 ```
 
-Update an article:
+Update the article:
 
 ```bash
-curl -s -X PATCH http://localhost:8088/api/articles/1 \
+curl -s -X PATCH "http://localhost:8088/api/articles/$ARTICLE_ID" \
   -H 'Content-Type: application/json' \
-  -d '{
-    "title": "Hello Spring Boot REST",
-    "body": "Now this feels more like enterprise Rails."
-  }' | jq
+  -d '{"title":"Hello Spring Boot REST","body":"Now this feels like a Rails blog as an API."}' \
+  | jq
 ```
 
-Delete an article:
+Try a validation error:
 
 ```bash
-curl -i -X DELETE http://localhost:8088/api/articles/1
+curl -s -X POST http://localhost:8088/api/articles \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"","body":""}' \
+  | jq
 ```
 
-Expected delete response:
+Expected shape:
+
+```json
+{
+  "status": 422,
+  "error": "Validation Failed",
+  "errors": [
+    {
+      "field": "title",
+      "message": "must not be blank"
+    }
+  ]
+}
+```
+
+Delete the article:
+
+```bash
+curl -i -X DELETE "http://localhost:8088/api/articles/$ARTICLE_ID"
+```
+
+Expected status:
 
 ```text
 HTTP/1.1 204
@@ -725,12 +763,12 @@ HTTP/1.1 204
 
 ---
 
-# 11. Prove Postgres has the table
+# 11. Prove Postgres Has The Table
 
 From any terminal:
 
 ```bash
-docker exec -it postgres psql -U app -d app -c '\dt'
+docker exec postgres psql -U app -d app -c '\dt'
 ```
 
 Expected table:
@@ -742,31 +780,37 @@ articles
 Inspect rows:
 
 ```bash
-docker exec -it postgres psql -U app -d app -c 'select * from articles;'
+docker exec postgres psql -U app -d app -c 'select id, title, created_at, updated_at from articles order by id;'
 ```
 
 ---
 
-# 12. Comments
+# 12. Add Comments
 
 Now add comments.
 
-This matches:
+This matches the Rails tutorial relationship:
 
 ```text
 Article has many comments
 Comment belongs to article
 ```
 
-Create this directory:
+In this API version, comments are nested under articles:
 
 ```text
-src/main/java/xyz/deanlofts/helloworld/comments
+/api/articles/{articleId}/comments
+```
+
+Create the package directory:
+
+```bash
+mkdir -p src/main/java/xyz/deanlofts/helloworld/comments
 ```
 
 ---
 
-## 12.1 Comment entity
+## 12.1 Comment Entity
 
 Create this file:
 
@@ -791,6 +835,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import xyz.deanlofts.helloworld.articles.Article;
 
 @Entity
@@ -805,6 +851,7 @@ public class Comment {
 
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "article_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private Article article;
 
     @Column(nullable = false)
@@ -831,10 +878,6 @@ public class Comment {
         return body;
     }
 
-    public Article getArticle() {
-        return article;
-    }
-
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -843,7 +886,7 @@ public class Comment {
 
 ---
 
-## 12.2 Comment repository
+## 12.2 Comment Repository
 
 Create this file:
 
@@ -857,17 +900,20 @@ Paste:
 package xyz.deanlofts.helloworld.comments;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface CommentRepository extends JpaRepository<Comment, Long> {
     List<Comment> findByArticleIdOrderByCreatedAtAsc(Long articleId);
+
+    Optional<Comment> findByArticleIdAndId(Long articleId, Long id);
 }
 ```
 
 ---
 
-## 12.3 Comment request DTO
+## 12.3 Comment Request DTO
 
 Create this file:
 
@@ -891,7 +937,7 @@ public record CommentRequest(
 
 ---
 
-## 12.4 Comment response DTO
+## 12.4 Comment Response DTO
 
 Create this file:
 
@@ -912,10 +958,10 @@ public record CommentResponse(
     String body,
     Instant createdAt
 ) {
-    public static CommentResponse from(Comment comment) {
+    public static CommentResponse from(Comment comment, Long articleId) {
         return new CommentResponse(
             comment.getId(),
-            comment.getArticle().getId(),
+            articleId,
             comment.getBody(),
             comment.getCreatedAt()
         );
@@ -925,7 +971,7 @@ public record CommentResponse(
 
 ---
 
-# 13. Comments controller
+# 13. Add The Comments Controller
 
 Create this file:
 
@@ -972,7 +1018,7 @@ public class CommentController {
 
         return comments.findByArticleIdOrderByCreatedAtAsc(articleId)
             .stream()
-            .map(CommentResponse::from)
+            .map(comment -> CommentResponse.from(comment, articleId))
             .toList();
     }
 
@@ -987,7 +1033,7 @@ public class CommentController {
 
         return ResponseEntity
             .created(URI.create("/api/articles/" + articleId + "/comments/" + saved.getId()))
-            .body(CommentResponse.from(saved));
+            .body(CommentResponse.from(saved, articleId));
     }
 
     @DeleteMapping("/{commentId}")
@@ -997,8 +1043,7 @@ public class CommentController {
     ) {
         ensureArticleExists(articleId);
 
-        Comment comment = comments.findById(commentId)
-            .filter(existing -> existing.getArticle().getId().equals(articleId))
+        Comment comment = comments.findByArticleIdAndId(articleId, commentId)
             .orElseThrow(() -> new NotFoundException(
                 "Comment " + commentId + " was not found for article " + articleId
             ));
@@ -1019,9 +1064,15 @@ public class CommentController {
 }
 ```
 
+Build:
+
+```bash
+./gradlew build
+```
+
 ---
 
-# 14. Test comments
+# 14. Test Comments
 
 Run the app:
 
@@ -1042,8 +1093,283 @@ ARTICLE_ID=$(
 echo "$ARTICLE_ID"
 ```
 
-Create a comment:
+Create a comment and capture its ID:
 
 ```bash
-curl -s -X POST "http://localhost:8088
+COMMENT_ID=$(
+  curl -s -X POST "http://localhost:8088/api/articles/$ARTICLE_ID/comments" \
+    -H 'Content-Type: application/json' \
+    -d '{"body":"This is the first comment."}' \
+  | jq -r '.id'
+)
+
+echo "$COMMENT_ID"
+```
+
+Create another comment:
+
+```bash
+curl -s -X POST "http://localhost:8088/api/articles/$ARTICLE_ID/comments" \
+  -H 'Content-Type: application/json' \
+  -d '{"body":"This is the second comment."}' \
+  | jq
+```
+
+List comments for the article:
+
+```bash
+curl -s "http://localhost:8088/api/articles/$ARTICLE_ID/comments" | jq
+```
+
+Try a validation error:
+
+```bash
+curl -s -X POST "http://localhost:8088/api/articles/$ARTICLE_ID/comments" \
+  -H 'Content-Type: application/json' \
+  -d '{"body":""}' \
+  | jq
+```
+
+Delete one comment:
+
+```bash
+curl -i -X DELETE "http://localhost:8088/api/articles/$ARTICLE_ID/comments/$COMMENT_ID"
+```
+
+Expected status:
+
+```text
+HTTP/1.1 204
+```
+
+List comments again:
+
+```bash
+curl -s "http://localhost:8088/api/articles/$ARTICLE_ID/comments" | jq
+```
+
+---
+
+# 15. Check The Database
+
+List tables:
+
+```bash
+docker exec postgres psql -U app -d app -c '\dt'
+```
+
+Expected tables:
+
+```text
+articles
+comments
+```
+
+Inspect articles:
+
+```bash
+docker exec postgres psql -U app -d app -c 'select id, title, created_at, updated_at from articles order by id;'
+```
+
+Inspect comments:
+
+```bash
+docker exec postgres psql -U app -d app -c 'select id, article_id, body, created_at from comments order by id;'
+```
+
+Delete an article:
+
+```bash
+curl -i -X DELETE "http://localhost:8088/api/articles/$ARTICLE_ID"
+```
+
+Then confirm its comments are gone too:
+
+```bash
+docker exec postgres psql -U app -d app -c "select id, article_id, body from comments where article_id = $ARTICLE_ID;"
+```
+
+Expected:
+
+```text
+(0 rows)
+```
+
+---
+
+# 16. API Route Summary
+
+```text
+GET    /                                Root JSON response
+GET    /actuator/health                 Health check
+
+GET    /api/articles                    List articles
+POST   /api/articles                    Create article
+GET    /api/articles/{id}               Show article
+PATCH  /api/articles/{id}               Update article
+DELETE /api/articles/{id}               Delete article
+
+GET    /api/articles/{articleId}/comments              List comments
+POST   /api/articles/{articleId}/comments              Create comment
+DELETE /api/articles/{articleId}/comments/{commentId}  Delete comment
+```
+
+---
+
+# 17. Build A Docker Image
+
+Create this file:
+
+```text
+Dockerfile
+```
+
+Paste:
+
+```dockerfile
+FROM eclipse-temurin:25-jre
+
+WORKDIR /app
+
+ARG JAR_FILE=build/libs/*-SNAPSHOT.jar
+COPY ${JAR_FILE} app.jar
+
+EXPOSE 8088
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+Build the jar:
+
+```bash
+./gradlew clean bootJar
+```
+
+Build the image:
+
+```bash
+docker build -t hello-world:dev .
+```
+
+Stop any running `./gradlew bootRun` process before starting the container, because both use port `8088`.
+
+Run the container against the Postgres service on your Mac:
+
+```bash
+docker run --rm \
+  --name hello-world \
+  -p 8088:8088 \
+  -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/app \
+  -e SPRING_DATASOURCE_USERNAME=app \
+  -e SPRING_DATASOURCE_PASSWORD=app \
+  hello-world:dev
+```
+
+Test it from another terminal:
+
+```bash
+curl -s http://localhost:8088/actuator/health
+```
+
+Expected:
+
+```json
+{"status":"UP"}
+```
+
+Stop the container with:
+
+```text
+Ctrl+C
+```
+
+---
+
+# 18. Publish To GHCR
+
+You need a GitHub token with package write permission.
+
+Set your GitHub username or organization:
+
+```bash
+export GHCR_OWNER=your-github-username
+```
+
+Log in:
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GHCR_OWNER" --password-stdin
+```
+
+Tag the image:
+
+```bash
+docker tag hello-world:dev "ghcr.io/$GHCR_OWNER/hello-world:0.0.1"
+docker tag hello-world:dev "ghcr.io/$GHCR_OWNER/hello-world:latest"
+```
+
+Push:
+
+```bash
+docker push "ghcr.io/$GHCR_OWNER/hello-world:0.0.1"
+docker push "ghcr.io/$GHCR_OWNER/hello-world:latest"
+```
+
+Pull it back to prove it exists:
+
+```bash
+docker pull "ghcr.io/$GHCR_OWNER/hello-world:latest"
+```
+
+---
+
+# 19. Reset The Lab Database
+
+Use this only when you intentionally want to wipe the blog tables:
+
+```bash
+docker exec postgres psql -U app -d app -c 'drop table if exists comments;'
+docker exec postgres psql -U app -d app -c 'drop table if exists articles;'
+```
+
+The next `./gradlew bootRun` will recreate the tables because this lab uses:
+
+```properties
+spring.jpa.hibernate.ddl-auto=update
+```
+
+---
+
+# 20. Troubleshooting
+
+If `./gradlew bootRun` cannot connect to Postgres, start the database:
+
+```bash
+cd /Users/deanlofts/gits/labs/spring-boot-microservices-lab/supporting-services
+docker compose up -d postgres
+docker exec postgres pg_isready -U app -d app
+```
+
+If port `8088` is already in use:
+
+```bash
+lsof -nP -iTCP:8088 -sTCP:LISTEN
+```
+
+Stop the process using that port, or temporarily change:
+
+```properties
+server.port=8089
+```
+
+If `jq` is missing, install it:
+
+```bash
+brew install jq
+```
+
+If Docker cannot find the jar, build it first:
+
+```bash
+./gradlew clean bootJar
 ```
